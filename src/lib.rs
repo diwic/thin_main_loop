@@ -1,4 +1,4 @@
-//! A simple main loop library for desktop applications and async I/O.
+//! A thin main loop library for desktop applications and async I/O.
 //!
 //! # Goals
 //!
@@ -21,55 +21,6 @@
 mod glib;
 use glib::Backend;
 
-/*
-use std::time::Duration;
-
-pub mod io {
-    pub trait Able {}
-    pub enum Ops { Read, Write, ReadWrite };
-}
-
-pub mod run {
-
-
-pub fn asap<F: FnOnce>(f: F) { unimplemented!() }
-
-
-pub fn after<F: FnOnce>(d: Duration, f: F) { unimplemented!() }
-
-
-pub fn interval<F: FnMut>(d: Duration, f: F) { unimplemented!() }
-
-/// Runs a function when there is data to read or write
-///
-/// Corresponding platform specific APIs:
-/// * Glib: g_source_add_unix_fd()
-/// * Windows: Overlapped I/O
-pub fn io<I: io::IOAble, F: FnMut(Result<io::Ops, io::Error>)>(i: I, ops: io::Ops, f: F) { unimplemented!() }
-
-}
-
-pub mod mainloop {
-
-/// Initializes the main loop on the current thread.
-pub fn init() { unimplemented!() }
-
-/// Tells all calls to "run" to quit.
-pub fn quit() -> bool { unimplemented!() }
-
-pub fn run() { unimplemented!() }
-
-/// Calls all waiting functions, then returns immediately.
-pub fn run_once() { unimplemented!() }
-
-pub fn run_max(d: Duration) { unimplemented!() }
-
-pub fn is_running() -> bool { unimplemented!() }
-
-pub fn can_run() -> bool { unimplemented!() }
-}
-*/
-
 use std::time::Duration;
 
 use std::cell::Cell;
@@ -78,7 +29,7 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 use std::panic;
 
-pub struct CbId(u32);
+// pub struct CbId(u32);
 
 enum CbKind<'a> {
     Asap(Box<dyn FnOnce() + 'a>),
@@ -142,7 +93,7 @@ impl<'a> MainLoop<'a> {
         })
     }
 
-
+    /// Creates a new main loop
     pub fn new() -> Self { MainLoop { 
         terminated: Cell::new(false),
         backend: Backend::new(),
@@ -197,7 +148,9 @@ pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) {
     call_internal(cb);
 }
 
-
+/// Terminates the currently running main loop.
+///
+/// This function does nothing if the main loop is not running.
 pub fn terminate() {
     current_loop.with(|ml| {
         if let Some(ml) = ml.get() { 
