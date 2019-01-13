@@ -1,33 +1,13 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use crate::{MainLoop};
+use crate::CbKind;
 use std::time::{Instant, Duration};
 use std::thread;
-
-/*
-struct After<'a> {
-    id: CbId,
-    time: Instant,
-    cb: Box<dyn FnOnce(&MainLoop<'a>) + 'a>
-}
-
-struct Intervals<'a> {
-    id: CbId,
-    period: Duration,
-    next: Instant,
-    cb: Box<dyn FnMut(&MainLoop<'a>) -> bool + 'a>
-}
-*/
 
 struct Data<'a> {
 //    id: CbId,
     next: Instant,
-    kind: Kind<'a>,
-}
-
-enum Kind<'a> { 
-    After(Box<dyn FnOnce(&MainLoop<'a>) + 'a>),
-    Interval(Box<dyn FnMut(&MainLoop<'a>) -> bool + 'a>, Duration)
+    kind: CbKind<'a>,
 }
 
 #[derive(Default)]
@@ -37,7 +17,7 @@ pub struct Backend<'a> {
 
 impl<'a> Backend<'a> {
     pub fn new() -> Self { Default::default() }
-    pub fn run_one(&self, ml: &MainLoop<'a>, wait: bool) -> bool {
+    pub fn run_one(&self, wait: bool) -> bool {
         let mut d = self.data.borrow_mut();
         let mut item = d.pop_front();
         let mut next: Option<Instant> = item.as_ref().map(|i| i.next);
@@ -53,9 +33,10 @@ impl<'a> Backend<'a> {
 
         if let Some(item) = item {
             match item.kind {
-                Kind::After(f) => f(ml),
-                Kind::Interval(mut f, d) => if f(ml) {
-                    self.push(Data { /* id: item.id, */ next: item.next + d, kind: Kind::Interval(f, d)});
+                CbKind::Asap(f) => f(),
+                CbKind::After(f, _) => f(),
+                CbKind::Interval(mut f, d) => if f() {
+                    self.push_internal(Data { /* id: item.id, */ next: item.next + d, kind: CbKind::Interval(f, d)});
                 },
             }
             true
@@ -68,7 +49,7 @@ impl<'a> Backend<'a> {
             false
         } else { false }
     }
-    fn push(&self, item: Data<'a>) {
+    fn push_internal(&self, item: Data<'a>) {
         let mut d = self.data.borrow_mut();
         let mut i = 0;
         while let Some(x) = d.get(i) {
@@ -76,10 +57,10 @@ impl<'a> Backend<'a> {
         }
         d.insert(i, item);
     }
-    pub fn push_after(&self, d: Duration, f: Box<dyn FnOnce(&MainLoop<'a>) + 'a>) {
-        self.push(Data { next: Instant::now() + d, kind: Kind::After(f) });
-    }
-    pub fn push_interval(&self, d: Duration, f: Box<dyn FnMut(&MainLoop<'a>) -> bool + 'a>) {
-        self.push(Data { next: Instant::now() + d, kind: Kind::Interval(f, d) });
+    pub (crate) fn push(&self, cb: CbKind<'a>) {
+        self.push_internal(Data {
+            next: Instant::now() + cb.duration().unwrap_or(Duration::from_secs(0)),
+            kind: cb
+        })
     }
 }
