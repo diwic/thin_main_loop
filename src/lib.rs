@@ -15,9 +15,11 @@
 
 #![feature(unsized_locals)]
 
-mod ruststd;
+// mod ruststd;
+// use ruststd::Backend;
 
-use ruststd::Backend;
+mod glib;
+use glib::Backend;
 
 /*
 use std::time::Duration;
@@ -266,7 +268,8 @@ fn interval() {
             false
         });
         ml.call_interval(Duration::from_millis(100), || {
-           x += 1; 
+           println!("{}", x);
+           x += 1;
            if x >= 4 { terminate(); }
            true
         });
