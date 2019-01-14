@@ -18,8 +18,17 @@
 // mod ruststd;
 // use ruststd::Backend;
 
+// #![windows_subsystem = "windows"]
+
+#[cfg(unix)]
 mod glib;
-use glib::Backend;
+#[cfg(unix)]
+use crate::glib::Backend;
+
+#[cfg(windows)]
+mod winmsg;
+#[cfg(windows)]
+use crate::winmsg::Backend;
 
 use std::time::Duration;
 

@@ -1,5 +1,4 @@
 use std::marker::PhantomData;
-
 use crate::CbKind;
 use glib_sys;
 use std::panic;
