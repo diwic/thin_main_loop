@@ -175,12 +175,12 @@ thread_local! {
 
 #[test]
 fn borrowed() {
-    let x;
+    let mut x;
     let mut ml = MainLoop::new();
-    x = Cell::new(false);
-    ml.call_asap(|| { x.set(true); terminate(); });
+    x = false;
+    ml.call_asap(|| { x = true; terminate(); });
     ml.run();
-    assert_eq!(x.get(), true);
+    assert_eq!(x, true);
 }
 
 #[test]

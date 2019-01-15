@@ -1,4 +1,4 @@
-## Cross platform thin main loop
+# A thin main loop for Rust
 
 Because Rust's native GUI story starts with the main loop.
 
@@ -8,6 +8,7 @@ Because Rust's native GUI story starts with the main loop.
  * Cross-platform
  * Negligible performance overhead for desktop applications
  * Bind to the best backend on each platform
+ * Compatible with Futures/await/async, when it settles
 
 ## Non-goals
 
@@ -15,9 +16,72 @@ Because Rust's native GUI story starts with the main loop.
  * I/O scalability
  * no_std functionality
 
+## Status
+
+The library has functions for running a callback ASAP (as soon as the main loop gets a chance to run something), after a timeout, or at regular intervals.
+
+Maturity: None. It's a proof-of-concept, to spawn discussion and interest.
+
+Needs nightly Rust due to [Box<FnOnce>](https://github.com/rust-lang/rust/issues/28796), but hopefully that's on the road towards stabilization soon.
+
+## Supported platforms
+
+Currently:
+
+ * Win32 API (default on windows)
+ * Glib (default on unix)
+ * Rust std (fallback on other platforms)
+
+Wishlist:
+
+ * OS X
+ * Wasm
+ * QT
+ * iOS
+ * Android
+
+# Examples
+
+## Borrowing
+
+If you have access to the mainloop, it supports borrowing closures so you don't have to clone/refcell your data:
+
+```rust
+// extern crate thin_main_loop as tml;
+
+let mut x = false;
+let mut ml = tml::MainLoop::new();
+ml.call_asap(|| {
+    x = true; // x is mutably borrowed by the closure
+    tml::terminate();
+});
+ml.run();
+assert_eq!(x, true);
+```
+
+## Non-borrowing, and a timer
+
+If you don't have access to the mainloop, you can still schedule `'static` callbacks:
+
+```rust
+// extern crate thin_main_loop as tml;
+
+let mut ml = tml::MainLoop::new();
+ml.call_asap(|| {
+    // Inside a callback we can schedule another callback.
+    tml::call_after(Duration::new(1, 0), || {
+        tml::terminate();
+    });
+})
+ml.run();
+// After one second, the main loop is terminated.
+```
+
+# Background
+
 ## Callbacks
 
-The APIs for native GUI seem to have one thing in common: they build on callbacks. When a button is clicked, you get a callback. The problem though, is that callbacks aren't really rustic: if you want to access your button object in two different callbacks, you end up having to Rc/RefCell it. And while that isn't the end of the world, people have been experimenting with other, more rustic, API designs.
+Most of the APIs for native GUIs build on callbacks. When a button is clicked, you get a callback. The problem though, is that callbacks aren't really rustic: if you want to access your button object in two different callbacks, you end up having to Rc/RefCell it. And while that isn't the end of the world, people have been experimenting with other, more rustic, API designs.
 
 But that will be the task of another library. If we first make a thin cross platform library that binds to the native GUI apis, we can then experiment with making a more rustic API on top of that. And before we can make windows and buttons, we need to make a main loop which can process events from these objects. Hence this library.
 
@@ -27,19 +91,7 @@ But that will be the task of another library. If we first make a thin cross plat
 
 Also, Mio is better at avoiding allocations, at the cost of being less ergonomic.
 
-## Supported platforms
+## Comparison with Winit
 
-Currently:
-
- * Win32 API (default on windows)
- * Glib (default on unix)
- * Rust std (fallback other platforms)
-
-Wishlist:
-
- * OS X
- * Wasm
- * QT
- * iOS
- * Android
+[Winit](https://crates.io/crates/winit) includes an event loop, and the crate has the purpose of creating windows. The event loop is not callback based, but enum based (every Event is an enum, which you need to dispatch yourself). Winit's focus is more on getting a window and custom drawing (through OpenGL, Vulcan etc) rather than drawing native GUI widgets, but nonetheless has some common ground with this crate.
 
