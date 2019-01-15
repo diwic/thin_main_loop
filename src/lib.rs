@@ -4,34 +4,45 @@
 
 #![feature(unsized_locals)]
 
-#[cfg(unix)]
+#[cfg(feature = "glib")]
 mod glib;
-#[cfg(unix)]
-use crate::glib::Backend;
 
-#[cfg(windows)]
+#[cfg(feature = "win32")]
 mod winmsg;
-#[cfg(windows)]
-use crate::winmsg::Backend;
 
-#[cfg(not(any(windows, unix)))]
+#[cfg(feature = "web")]
+mod web;
+
+#[cfg(not(any(feature = "win32", feature = "glib", feature = "web")))]
 mod ruststd;
-#[cfg(not(any(windows, unix)))]
-use crate::ruststd::Backend;
+
+#[cfg(not(feature = "web"))]
+mod mainloop;
+
+#[cfg(not(feature = "web"))]
+pub use mainloop::MainLoop;
 
 use std::time::Duration;
-
-use std::cell::Cell;
-use std::ptr::NonNull;
-use std::marker::PhantomData;
-use std::rc::Rc;
-use std::panic;
 
 // TODO: Threads (call something on another thread)
 // TODO: Cancel callbacks before they are run
 // TODO: Futures integration
 
 // pub struct CbId(u32);
+
+/// Possible error codes returned from the main loop API.
+#[derive(Copy, Clone, Debug)]
+pub enum MainLoopError {
+    TooManyMainLoops,
+    NoMainLoop,
+    DurationTooLong,
+}
+
+/// Callback Id, can be used to cancel callback before its run.
+///
+/// The cancel function is not implemented yet.
+#[derive(Clone, Debug)]
+pub struct CbId();
 
 enum CbKind<'a> {
     Asap(Box<dyn FnOnce() + 'a>),
@@ -50,89 +61,48 @@ impl<'a> CbKind<'a> {
             CbKind::Interval(_, d) => Some(*d),
         }
     }
-}
-
-pub struct MainLoop<'a> {
-    terminated: Cell<bool>,
-    backend: Backend<'a>,
-    _z: PhantomData<Rc<()>>, // !Send, !Sync
-}
-
-impl<'a> MainLoop<'a> {
-    pub fn quit(&self) { self.terminated.set(true) }
-    pub fn call_asap<F: FnOnce() + 'a>(&self, f: F) { self.backend.push(CbKind::asap(f)) } 
-    pub fn call_after<F: FnOnce() + 'a>(&self, d: Duration, f: F) { self.backend.push(CbKind::after(f, d)) }
-    pub fn call_interval<F: FnMut() -> bool + 'a>(&self, d: Duration, f: F) { self.backend.push(CbKind::interval(f, d)) }
-
-    fn with_current_loop<F: FnOnce()>(&self, f: F) {
-        if self.terminated.get() { return; }
-        current_loop.with(|ml| {
-            if ml.get().is_some() { panic!("Reentrant call to MainLoop") }
-            ml.set(Some(NonNull::from(self).cast()));
-        });
-        let r = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-             f()
-        }));
-        current_loop.with(|ml| { ml.set(None); });
-        if let Err(e) = r { panic::resume_unwind(e) };
+    pub fn duration_millis(&self) -> Result<Option<u32>, MainLoopError> {
+        if let Some(d) = self.duration() {
+            let m = (u32::max_value() / 1000) - 1;
+            let s = d.as_secs();
+            if s >= m as u64 { return Err(MainLoopError::DurationTooLong) }
+            Ok(Some((s as u32) * 1000 + d.subsec_millis()))
+        } else { Ok(None) } 
     }
-
-    /// Runs the main loop until terminated.
-    pub fn run(&mut self) {
-        self.with_current_loop(|| {
-            while !self.terminated.get() {
-                self.backend.run_one(true);
-            }
-        })
-    }
-
-    /// Runs the main loop once, without waiting.
-    pub fn run_one(&mut self) {
-        self.with_current_loop(|| {
-            if !self.terminated.get() {
-                self.backend.run_one(false);
-            }
-        })
-    }
-
-    /// Creates a new main loop
-    pub fn new() -> Self { MainLoop { 
-        terminated: Cell::new(false),
-        backend: Backend::new(),
-        _z: PhantomData 
-    } }
 }
 
-fn call_internal(cb: CbKind<'static>) {
-    current_loop.with(|ml| {
-        let ml = ml.get().unwrap();
-        let ml = unsafe { ml.as_ref() };
-        ml.backend.push(cb);
-    });
+fn call_internal(cb: CbKind<'static>) -> Result<CbId, MainLoopError> { 
+    #[cfg(not(feature = "web"))]
+    let r = mainloop::call_internal(cb);
+
+    #[cfg(feature = "web")]
+    let r = web::call_internal(cb);
+    r
 }
+
 
 /// Runs a function as soon as possible, i e, when the main loop runs.
 ///
 /// Corresponding platform specific APIs:
-/// * Glib: g_idle_add
-/// * Node.js: process.nextTick
-/// * Browser: Promise.resolve().then(...)
-/// * Windows: PostMessage
-pub fn call_asap<F: FnOnce() + 'static>(f: F) {
+/// * glib: g_idle_add
+/// * node.js: process.nextTick
+/// * web: Promise.resolve().then(...)
+/// * win32: PostMessage
+pub fn call_asap<F: FnOnce() + 'static>(f: F) -> Result<CbId, MainLoopError> {
     let cb = CbKind::asap(f);
-    call_internal(cb);
+    call_internal(cb)
 }
 
 /// Runs a function once, after a specified duration.
 ///
 /// Corresponding platform specific APIs:
-/// * Glib: g_timeout_add
-/// * Node.js: setTimeout
-/// * Browser: window.setTimeout
-/// * Windows: SetTimer
-pub fn call_after<F: FnOnce() + 'static>(d: Duration, f: F) {
+/// * glib: g_timeout_add
+/// * node.js: setTimeout
+/// * web: window.setTimeout
+/// * win32: SetTimer
+pub fn call_after<F: FnOnce() + 'static>(d: Duration, f: F) -> Result<CbId, MainLoopError> {
     let cb = CbKind::after(f, d);
-    call_internal(cb);
+    call_internal(cb)
 }
 
 /// Runs a function at regular intervals
@@ -141,96 +111,22 @@ pub fn call_after<F: FnOnce() + 'static>(d: Duration, f: F) {
 /// remove the callback from the main loop.
 ///
 /// Corresponding platform specific APIs:
-/// * Glib: g_timeout_add
-/// * Node.js: setInterval
-/// * Browser: window.setInterval
-/// * Windows: SetTimer
-pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) {
+/// * glib: g_timeout_add
+/// * node.js: setInterval
+/// * web: window.setInterval
+/// * win32: SetTimer
+pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) -> Result<CbId, MainLoopError> {
     let cb = CbKind::interval(f, d);
-    call_internal(cb);
+    call_internal(cb)
 }
 
 /// Terminates the currently running main loop.
 ///
 /// This function does nothing if the main loop is not running.
+/// This function does nothing with the "web" feature.
 pub fn terminate() {
-    current_loop.with(|ml| {
-        if let Some(ml) = ml.get() { 
-            let ml = unsafe { ml.as_ref() };
-            ml.quit(); 
-        }
-    });
+    #[cfg(not(feature = "web"))]
+    mainloop::terminate();
 }
 
-thread_local! {
-    static current_loop: Cell<Option<NonNull<MainLoop<'static>>>> = Default::default();
-}
 
-#[test]
-fn borrowed() {
-    let mut x;
-    let mut ml = MainLoop::new();
-    x = false;
-    ml.call_asap(|| { x = true; terminate(); });
-    ml.run();
-    assert_eq!(x, true);
-}
-
-#[test]
-fn asap_static() {
-    use std::rc::Rc;
-
-    let x;
-    let mut ml = MainLoop::new();
-    x = Rc::new(Cell::new(0));
-    let xcl = x.clone();
-    ml.call_asap(|| { 
-        assert_eq!(x.get(), 0);
-        x.set(1);
-        call_asap(move || {
-            assert_eq!(xcl.get(), 1);
-            xcl.set(2);
-            terminate();
-        })
-    });
-    ml.run();
-    assert_eq!(x.get(), 2);
-}
-
-#[test]
-fn after() {
-    use std::time::Instant;
-    let x;
-    let mut ml = MainLoop::new();
-    x = Cell::new(false);
-    let n = Instant::now();
-    ml.call_after(Duration::from_millis(300), || { x.set(true); terminate(); });
-    ml.run();
-    assert_eq!(x.get(), true);
-    assert!(Instant::now() - n >= Duration::from_millis(300)); 
-}
-
-#[test]
-fn interval() {
-    use std::time::Instant;
-    let mut x = 0;
-    let mut y = 0;
-    let n = Instant::now();
-    {
-        let mut ml = MainLoop::new();
-        ml.call_interval(Duration::from_millis(150), || {
-            y += 1;
-            false
-        });
-        ml.call_interval(Duration::from_millis(100), || {
-           println!("{}", x);
-           x += 1;
-           if x >= 4 { terminate(); }
-           true
-        });
-        ml.run();
-    }
-    assert_eq!(y, 1);
-    assert_eq!(x, 4);
-    assert!(Instant::now() - n >= Duration::from_millis(400)); 
-}

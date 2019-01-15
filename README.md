@@ -28,14 +28,14 @@ Needs nightly Rust due to [Box FnOnce](https://github.com/rust-lang/rust/issues/
 
 Currently:
 
- * Win32 API (default on windows)
- * Glib (default on unix)
- * Rust std (fallback on other platforms)
+ * Win32 API (compile with `--features "win32"`)
+ * Glib (compile with `--features "glib"`)
+ * Rust std (if you don't specify any features)
 
 Wishlist:
 
- * OS X
- * Wasm
+ * OS X / Cocoa
+ * Wasm / web (limited as we don't control the main loop)
  * QT
  * iOS
  * Android
@@ -50,12 +50,14 @@ If you have access to the mainloop, it supports borrowing closures so you don't 
 // extern crate thin_main_loop as tml;
 
 let mut x = false;
-let mut ml = tml::MainLoop::new();
-ml.call_asap(|| {
-    x = true; // x is mutably borrowed by the closure
-    tml::terminate();
-});
-ml.run();
+{
+    let mut ml = tml::MainLoop::new();
+    ml.call_asap(|| {
+        x = true; // x is mutably borrowed by the closure
+        tml::terminate();
+    });
+    ml.run();
+}
 assert_eq!(x, true);
 ```
 

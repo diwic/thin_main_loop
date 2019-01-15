@@ -4,8 +4,24 @@ version = "0.1.0"
 authors = ["David Henningsson <diwic@ubuntu.com>"]
 edition = "2018"
 
-[target.'cfg(unix)'.dependencies]
-glib-sys = "0.7"
+[dependencies]
+glib-sys = { version = "0.7", optional = true }
+wasm-bindgen = { version = "0.2.29", optional = true }
+js-sys = { version = "0.3.6", optional = true }
 
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winuser", "libloaderapi", "std"] }
+[dependencies.winapi]
+version = "0.3"
+optional = true
+features = ["winuser", "libloaderapi", "std"]
+
+[dependencies.web-sys]
+version = "0.3.4"
+optional = true
+features = [
+  'Window',
+]
+
+[features]
+glib = ["glib-sys"]
+win32 = ["winapi"]
+web = ["wasm-bindgen", "js-sys", "web-sys"]

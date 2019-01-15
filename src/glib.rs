@@ -1,5 +1,5 @@
 use std::marker::PhantomData;
-use crate::CbKind;
+use crate::{CbKind, CbId, MainLoopError};
 use glib_sys;
 use std::panic;
 use std::any::Any;
@@ -49,8 +49,8 @@ impl<'a> Backend<'a> {
         if let Some(e) = current_panic.with(|cp| { cp.borrow_mut().take() }) { panic::resume_unwind(e) }
         r
     }
-    pub (crate) fn push(&self, cb: CbKind<'a>) {
-        let d = cb.duration().map(|d| (d.as_secs() as u32) * 1000 + d.subsec_millis()); // TODO: handle overflow
+    pub (crate) fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {
+        let d = cb.duration_millis()?;
         let x = Box::into_raw(Box::new(cb));
         let x = x as *mut _ as glib_sys::gpointer;
         unsafe { 
@@ -64,6 +64,7 @@ impl<'a> Backend<'a> {
             glib_sys::g_source_attach(s, self.ctx);
             glib_sys::g_source_unref(s);
         }
+        Ok(CbId())
     }
 }
 

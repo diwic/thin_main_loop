@@ -90,8 +90,8 @@ impl<'a> Backend<'a> {
             } else { false }
         }
     }
-    pub (crate) fn push(&self, cb: CbKind<'a>) {
-        let d = cb.duration().map(|d| (d.as_secs() as u32) * 1000 + d.subsec_millis()); // TODO: handle overflow
+    pub (crate) fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {
+        let d = cb.duration_millis()?;
         let x = Box::into_raw(Box::new(cb));
         match d {
             None => unsafe { 
@@ -100,6 +100,7 @@ impl<'a> Backend<'a> {
             Some(d) => unsafe {
                 winuser::SetTimer(self.wnd, x as usize, d, None);
             }
-        }
+        };
+        Ok(CbId())
     }
 }
