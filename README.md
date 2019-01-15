@@ -22,7 +22,7 @@ The library has functions for running a callback ASAP (as soon as the main loop 
 
 Maturity: None. It's a proof-of-concept, to spawn discussion and interest.
 
-Needs nightly Rust due to [Box<FnOnce>](https://github.com/rust-lang/rust/issues/28796), but hopefully that's on the road towards stabilization soon.
+Needs nightly Rust due to [Box FnOnce](https://github.com/rust-lang/rust/issues/28796), but hopefully that's on the road towards stabilization soon.
 
 ## Supported platforms
 

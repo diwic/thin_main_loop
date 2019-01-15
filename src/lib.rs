@@ -1,24 +1,8 @@
 //! A thin main loop library for desktop applications and async I/O.
 //!
-//! # Goals
-//!
-//! * Ergonomic API
-//! * Cross-platform
-//! * Negligible performance overhead (for desktop applications)
-//! * Provide the best backend on each platform
-//!
-//! # Non-goals
-//! 
-//! * Avoiding allocations and virtual dispatch at all costs
-//! * I/O scalability (use mio for this)
-//! * no_std functionality
+//! See README.md for an introduction.
 
 #![feature(unsized_locals)]
-
-// mod ruststd;
-// use ruststd::Backend;
-
-// #![windows_subsystem = "windows"]
 
 #[cfg(unix)]
 mod glib;
@@ -30,6 +14,11 @@ mod winmsg;
 #[cfg(windows)]
 use crate::winmsg::Backend;
 
+#[cfg(not(any(windows, unix)))]
+mod ruststd;
+#[cfg(not(any(windows, unix)))]
+use crate::ruststd::Backend;
+
 use std::time::Duration;
 
 use std::cell::Cell;
@@ -37,6 +26,10 @@ use std::ptr::NonNull;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::panic;
+
+// TODO: Threads (call something on another thread)
+// TODO: Cancel callbacks before they are run
+// TODO: Futures integration
 
 // pub struct CbId(u32);
 
@@ -62,7 +55,7 @@ impl<'a> CbKind<'a> {
 pub struct MainLoop<'a> {
     terminated: Cell<bool>,
     backend: Backend<'a>,
-    _z: PhantomData<Rc<()>>,
+    _z: PhantomData<Rc<()>>, // !Send, !Sync
 }
 
 impl<'a> MainLoop<'a> {
