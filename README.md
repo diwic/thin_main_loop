@@ -93,6 +93,10 @@ But that will be the task of another library. If we first make a thin cross plat
 
 Also, Mio is better at avoiding allocations, at the cost of being less ergonomic.
 
+## Comparison with Calloop
+
+[Calloop](https://crates.io/crates/calloop) is an event loop with very similar callback-style API to this crate. However, it is built on top of Mio, and so it binds to unsuitable native APIs for native GUI applications.
+
 ## Comparison with Winit
 
 [Winit](https://crates.io/crates/winit) includes an event loop, and the crate has the purpose of creating windows. The event loop is not callback based, but enum based (every Event is an enum, which you need to dispatch yourself). Winit's focus is more on getting a window and custom drawing (through OpenGL, Vulcan etc) rather than drawing native GUI widgets, but nonetheless has some common ground with this crate.
