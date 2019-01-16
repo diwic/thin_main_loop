@@ -97,3 +97,6 @@ Also, Mio is better at avoiding allocations, at the cost of being less ergonomic
 
 [Winit](https://crates.io/crates/winit) includes an event loop, and the crate has the purpose of creating windows. The event loop is not callback based, but enum based (every Event is an enum, which you need to dispatch yourself). Winit's focus is more on getting a window and custom drawing (through OpenGL, Vulcan etc) rather than drawing native GUI widgets, but nonetheless has some common ground with this crate.
 
+## Comparison with IUI / libui
+
+[IUI](https://crates.io/crates/iui) is a Rust binding to libui, which is a cross-platform GUI library written in C. Its event loop offers callbacks, much like this library. In comparison, this library is pure Rust only and binds to native libraries directly, skipping one abstraction level and is therefore easier to build. I also hope that with time this library could offer better Rust integration as well as some more flexibility, being usable for more than pure GUI applications, even if that is the current primary use case.
