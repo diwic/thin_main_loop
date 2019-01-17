@@ -2,7 +2,13 @@
 //!
 //! See README.md for an introduction.
 
+// Because Box<FnOnce>
 #![feature(unsized_locals)]
+
+// Because this is just an unfinished prototype
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
 
 #[cfg(feature = "glib")]
 mod glib;
@@ -23,6 +29,7 @@ mod mainloop;
 pub use mainloop::MainLoop;
 
 use std::time::Duration;
+use std::thread::ThreadId;
 
 // TODO: Threads (call something on another thread)
 // TODO: Cancel callbacks before they are run
@@ -118,6 +125,34 @@ pub fn call_after<F: FnOnce() + 'static>(d: Duration, f: F) -> Result<CbId, Main
 pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) -> Result<CbId, MainLoopError> {
     let cb = CbKind::interval(f, d);
     call_internal(cb)
+}
+
+
+/// Runs a function on another thread. The target thread must run a main loop.
+pub fn call_thread<F: FnOnce() + 'static>(thread: ThreadId, f: F) -> Result<(), MainLoopError> {
+    unimplemented!()
+}
+
+/// Represents an object that can be read from and/or written to.
+///
+/// Should be implemented by fds on unix, handles and sockets on windows, std::net::TCPStream/UDPStream etc etc
+pub trait IOAble {
+    /* TODO */
+}
+
+pub enum IODirection {
+    None,
+    Read,
+    Write,
+    ReadWrite,
+}
+
+/// Runs a function when there is data to be read or written.
+///
+/// Return "true" from the callback function to continue running
+/// or "false" to remove the callback from the main loop.
+pub fn call_io<IO: IOAble, F: FnMut(&mut IO, IODirection) -> bool + 'static>(io: IO, dir: IODirection, f: F) -> Result<CbId, MainLoopError> {
+    unimplemented!()
 }
 
 /// Terminates the currently running main loop.

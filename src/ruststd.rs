@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use crate::CbKind;
+use crate::{CbKind, CbId, MainLoopError};
 use std::time::{Instant, Duration};
 use std::thread;
 
@@ -57,10 +57,11 @@ impl<'a> Backend<'a> {
         }
         d.insert(i, item);
     }
-    pub (crate) fn push(&self, cb: CbKind<'a>) {
+    pub (crate) fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {
         self.push_internal(Data {
             next: Instant::now() + cb.duration().unwrap_or(Duration::from_secs(0)),
             kind: cb
-        })
+        });
+        Ok(CbId())
     }
 }
