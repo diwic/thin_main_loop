@@ -9,6 +9,8 @@
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
+#[macro_use]
+extern crate lazy_static;
 
 #[cfg(feature = "glib")]
 mod glib;
@@ -38,11 +40,12 @@ use std::thread::ThreadId;
 // pub struct CbId(u32);
 
 /// Possible error codes returned from the main loop API.
-#[derive(Copy, Clone, Debug)]
+#[derive(Debug)]
 pub enum MainLoopError {
     TooManyMainLoops,
     NoMainLoop,
     DurationTooLong,
+    Other(Box<std::error::Error>),
 }
 
 /// Callback Id, can be used to cancel callback before its run.
@@ -129,8 +132,9 @@ pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) -> Result<
 
 
 /// Runs a function on another thread. The target thread must run a main loop.
-pub fn call_thread<F: FnOnce() + 'static>(thread: ThreadId, f: F) -> Result<(), MainLoopError> {
-    unimplemented!()
+#[cfg(not(feature = "web"))]
+pub fn call_thread<F: FnOnce() + Send + 'static>(thread: ThreadId, f: F) -> Result<(), MainLoopError> {
+    mainloop::call_thread_internal(thread, Box::new(f)) 
 }
 
 /// Represents an object that can be read from and/or written to.

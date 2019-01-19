@@ -13,6 +13,9 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 use std::panic;
 use std::time::Duration;
+use std::sync::Mutex;
+use std::collections::HashMap;
+use std::thread::ThreadId;
 use crate::{CbKind, CbId, MainLoopError};
 
 pub (crate) fn call_internal(cb: CbKind<'static>) -> Result<CbId, MainLoopError> {
@@ -22,6 +25,23 @@ pub (crate) fn call_internal(cb: CbKind<'static>) -> Result<CbId, MainLoopError>
         ml.backend.push(cb)
     })
 }
+
+pub (crate) trait SendFnOnce: Send {
+    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError>;
+}
+
+lazy_static! {
+    static ref THREAD_SENDER: Mutex<HashMap<ThreadId, Box<SendFnOnce>>> = Default::default();
+}
+
+
+pub (crate) fn call_thread_internal(thread: ThreadId, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
+    let map = THREAD_SENDER.lock().unwrap();
+    let sender = map.get(&thread).ok_or(MainLoopError::NoMainLoop)?;
+    sender.send(f)
+}
+
+
 
 pub (crate) fn terminate() {
     current_loop.with(|ml| {
@@ -88,19 +108,34 @@ impl<'a> MainLoop<'a> {
     }
 
     /// Creates a new main loop
-    pub fn new() -> Self { MainLoop { 
-        terminated: Cell::new(false),
-        backend: Backend::new(),
-        _z: PhantomData 
-    } }
+    pub fn new() -> Result<Self, MainLoopError> {
+        let (be, sender) = Backend::new()?;
+        let thread_id = std::thread::current().id();
+        {
+            let mut s = THREAD_SENDER.lock().unwrap();
+            if s.contains_key(&thread_id) { return Err(MainLoopError::TooManyMainLoops) };
+            s.insert(thread_id, sender);
+        }
+        Ok(MainLoop { 
+            terminated: Cell::new(false),
+            backend: be,
+            _z: PhantomData 
+        })
+    }
 }
 
+impl Drop for MainLoop<'_> {
+    fn drop(&mut self) {
+        let thread_id = std::thread::current().id();
+        THREAD_SENDER.lock().unwrap().remove(&thread_id);
+    }
+}
 
 #[test]
 fn borrowed() {
     let mut x;
     {
-        let mut ml = MainLoop::new();
+        let mut ml = MainLoop::new().unwrap();
         x = false;
         ml.call_asap(|| { x = true; terminate(); }).unwrap();
         ml.run();
@@ -113,7 +148,7 @@ fn asap_static() {
     use std::rc::Rc;
 
     let x;
-    let mut ml = MainLoop::new();
+    let mut ml = MainLoop::new().unwrap();
     x = Rc::new(Cell::new(0));
     let xcl = x.clone();
     ml.call_asap(|| { 
@@ -133,7 +168,7 @@ fn asap_static() {
 fn after() {
     use std::time::Instant;
     let x;
-    let mut ml = MainLoop::new();
+    let mut ml = MainLoop::new().unwrap();
     x = Cell::new(false);
     let n = Instant::now();
     ml.call_after(Duration::from_millis(300), || { x.set(true); terminate(); }).unwrap();
@@ -149,7 +184,7 @@ fn interval() {
     let mut y = 0;
     let n = Instant::now();
     {
-        let mut ml = MainLoop::new();
+        let mut ml = MainLoop::new().unwrap();
         ml.call_interval(Duration::from_millis(150), || {
             y += 1;
             false
@@ -165,4 +200,29 @@ fn interval() {
     assert_eq!(y, 1);
     assert_eq!(x, 4);
     assert!(Instant::now() - n >= Duration::from_millis(400)); 
+}
+
+#[test]
+fn thread_test() {
+    use std::thread;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let mut ml = MainLoop::new().unwrap();
+    let id = thread::current().id();
+    let x = Arc::new(AtomicUsize::new(0));
+    let xcl = x.clone();
+    thread::spawn(move || {
+        let srcid = thread::current().id();
+        crate::call_thread(id, move || {
+            assert_eq!(id, thread::current().id());
+            assert!(id != srcid);
+            // println!("Received");
+            xcl.store(1, Ordering::SeqCst);
+            terminate();
+        }).unwrap();
+        // println!("Sent");
+    });
+    ml.run();
+    assert_eq!(x.load(Ordering::SeqCst), 1);
 }

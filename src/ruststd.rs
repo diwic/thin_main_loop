@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 use crate::{CbKind, CbId, MainLoopError};
 use std::time::{Instant, Duration};
 use std::thread;
+use crate::mainloop::SendFnOnce;
+use std::sync::mpsc::{channel, Sender, Receiver};
 
 struct Data<'a> {
 //    id: CbId,
@@ -10,13 +12,31 @@ struct Data<'a> {
     kind: CbKind<'a>,
 }
 
-#[derive(Default)]
+struct TSender {
+    thread: thread::Thread,
+    sender: Sender<Box<FnOnce() + Send + 'static>>,
+}
+
+impl SendFnOnce for TSender {
+    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
+        self.sender.send(f).map_err(|e| MainLoopError::Other(e.into()))?;
+        self.thread.unpark();
+        Ok(())
+    }
+}
+
 pub struct Backend<'a> {
     data: RefCell<VecDeque<Data<'a>>>,
+    recv: Receiver<Box<FnOnce() + Send + 'static>>,
 }
 
 impl<'a> Backend<'a> {
-    pub fn new() -> Self { Default::default() }
+    pub (crate) fn new() -> Result<(Self, Box<SendFnOnce>), MainLoopError> {
+        let (tx, rx) = channel();
+        let be = Backend { recv: rx, data: Default::default() };
+        let sender = TSender { thread: thread::current(), sender: tx };
+        Ok((be, Box::new(sender)))
+    }
     pub fn run_one(&self, wait: bool) -> bool {
         let mut d = self.data.borrow_mut();
         let mut item = d.pop_front();
@@ -30,6 +50,10 @@ impl<'a> Backend<'a> {
             }
         }
         drop(d);
+
+        if item.is_none() {
+            item = self.recv.try_recv().ok().map(|f| Data { next: now, kind: CbKind::Asap(f) });
+        }
 
         if let Some(item) = item {
             match item.kind {
