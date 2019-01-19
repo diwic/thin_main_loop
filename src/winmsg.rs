@@ -1,17 +1,38 @@
 use std::marker::PhantomData;
-use crate::CbKind;
+use crate::{CbKind, CbId, MainLoopError};
+use crate::mainloop::SendFnOnce;
 use winapi;
 use std::{mem, ptr};
-use std::sync::Once;
+use std::sync::{Once, Arc};
 
 use winapi::shared::windef::HWND;
 use winapi::um::winuser;
 use winapi::um::libloaderapi;
 use winapi::um::winnt;
 
+struct OwnedHwnd(HWND);
+
+unsafe impl Send for OwnedHwnd {}
+unsafe impl Sync for OwnedHwnd {}
+
+impl Drop for OwnedHwnd {
+    fn drop(&mut self) { unsafe { winuser::DestroyWindow(self.0); } }
+}
+
 pub struct Backend<'a> {
-    wnd: HWND,
+    wnd: Arc<OwnedHwnd>,
     _z: PhantomData<&'a u8>
+}
+
+impl SendFnOnce for Arc<OwnedHwnd> {
+    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
+        let cb = CbKind::Asap(f);
+        let x = Box::into_raw(Box::new(cb));
+        unsafe {
+            winuser::PostMessageA(self.0, WM_CALL_ASAP, x as usize, 0);
+        }
+        Ok(())
+    }
 }
 
 const WM_CALL_ASAP: u32 = winuser::WM_USER + 10;
@@ -55,7 +76,7 @@ unsafe extern "system" fn wnd_callback(wnd: HWND, msg: u32, wparam: usize, lpara
 } 
 
 impl<'a> Backend<'a> {
-    pub fn new() -> Self {
+    pub (crate) fn new() -> Result<(Self, Box<SendFnOnce>), MainLoopError> {
         ensure_window_class();
         //println!("call CreateWindowExA");
         let wnd = unsafe { winuser::CreateWindowExA(
@@ -75,12 +96,14 @@ impl<'a> Backend<'a> {
         // println!("call CreateWindowExA finish");
         // println!("wnd: {:?}", wnd);
         assert!(!wnd.is_null());
-        Backend { wnd: wnd, _z: PhantomData }
+        let ownd = Arc::new(OwnedHwnd(wnd));
+        let be = Backend { wnd: ownd.clone(), _z: PhantomData };
+        Ok((be, Box::new(ownd)))
     }
     pub fn run_one(&self, wait: bool) -> bool {
         unsafe {
             let mut msg = mem::zeroed();
-            if winuser::PeekMessageA(&mut msg, self.wnd, 0, 0, winuser::PM_REMOVE) != 0 {
+            if winuser::PeekMessageA(&mut msg, self.wnd.0, 0, 0, winuser::PM_REMOVE) != 0 {
                 winuser::TranslateMessage(&msg);
                 winuser::DispatchMessageA(&msg);
                 true
@@ -95,10 +118,10 @@ impl<'a> Backend<'a> {
         let x = Box::into_raw(Box::new(cb));
         match d {
             None => unsafe { 
-                winuser::PostMessageA(self.wnd, WM_CALL_ASAP, x as usize, 0);
+                winuser::PostMessageA(self.wnd.0, WM_CALL_ASAP, x as usize, 0);
             },
             Some(d) => unsafe {
-                winuser::SetTimer(self.wnd, x as usize, d, None);
+                winuser::SetTimer(self.wnd.0, x as usize, d, None);
             }
         };
         Ok(CbId())
