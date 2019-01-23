@@ -5,10 +5,14 @@ authors = ["David Henningsson <diwic@ubuntu.com>"]
 edition = "2018"
 
 [dependencies]
-glib-sys = { version = "0.7", optional = true }
 wasm-bindgen = { version = "0.2.29", optional = true }
 js-sys = { version = "0.3.6", optional = true }
 lazy_static = "1.2"
+
+[dependencies.glib-sys]
+version = "0.7"
+optional = true
+features = ["v2_36"]
 
 [dependencies.winapi]
 version = "0.3"

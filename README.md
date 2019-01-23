@@ -9,6 +9,7 @@ Because Rust's native GUI story starts with the main loop.
  * Negligible performance overhead for desktop applications
  * Bind to the best backend on each platform
  * Compatible with Futures/await/async, when it settles
+ * No extra background threads
 
 ## Non-goals
 
@@ -18,7 +19,7 @@ Because Rust's native GUI story starts with the main loop.
 
 ## Status
 
-The library has functions for running a callback ASAP (as soon as the main loop gets a chance to run something), after a timeout, or at regular intervals.
+The library has functions for running a callback ASAP (as soon as the main loop gets a chance to run something), after a timeout, or at regular intervals. Sending a callback to another thread is also supported.
 
 Maturity: None. It's a proof-of-concept, to spawn discussion and interest.
 

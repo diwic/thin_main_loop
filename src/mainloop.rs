@@ -16,7 +16,7 @@ use std::time::Duration;
 use std::sync::Mutex;
 use std::collections::HashMap;
 use std::thread::ThreadId;
-use crate::{CbKind, CbId, MainLoopError};
+use crate::{CbKind, CbId, MainLoopError, IOAble};
 
 pub (crate) fn call_internal(cb: CbKind<'static>) -> Result<CbId, MainLoopError> {
     current_loop.with(|ml| {
@@ -40,8 +40,6 @@ pub (crate) fn call_thread_internal(thread: ThreadId, f: Box<FnOnce() + Send + '
     let sender = map.get(&thread).ok_or(MainLoopError::NoMainLoop)?;
     sender.send(f)
 }
-
-
 
 pub (crate) fn terminate() {
     current_loop.with(|ml| {
@@ -74,6 +72,9 @@ impl<'a> MainLoop<'a> {
     }
     pub fn call_interval<F: FnMut() -> bool + 'a>(&self, d: Duration, f: F)  -> Result<CbId, MainLoopError> {
         self.backend.push(CbKind::interval(f, d))
+    }
+    pub fn call_io<IO: IOAble + 'a>(&self, io: IO)  -> Result<CbId, MainLoopError> {
+        self.backend.push(CbKind::io(io))
     }
 
     fn with_current_loop<F: FnOnce()>(&self, f: F) {
@@ -226,3 +227,44 @@ fn thread_test() {
     ml.run();
     assert_eq!(x.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn io_test() {
+    use std::net::TcpStream;
+    use std::io::{Write, Read};
+    use crate::IODirection;
+
+    // Let's first make a blocking call.
+    let mut io = TcpStream::connect("example.com:80").unwrap();
+    io.write(b"GET /someinvalidurl HTTP/1.0\n\n").unwrap();
+    let mut reply1 = String::new();
+    io.read_to_string(&mut reply1).unwrap();
+    println!("{}", reply1);
+
+    struct Wrapper(TcpStream, String, String);
+    use std::os::unix::io::{RawFd, AsRawFd};
+    impl IOAble for Wrapper {
+        fn fd(&self) -> RawFd { self.0.as_raw_fd() }
+        fn on_rw(&mut self, x: Result<IODirection, std::io::Error>) {
+            println!("on_rw: {:?}", x);
+            let r = self.0.read_to_string(&mut self.1);
+            println!("r = {:?}, len = {}", r, self.1.len());
+            if let Ok(n) = r {
+                if n == 0 {
+                     println!("{}", self.1);
+                     assert_eq!(self.1, self.2);
+                     terminate();     
+                }
+            }
+        }
+    }
+
+    // And now the non-blocking call.
+    let mut ml = MainLoop::new().unwrap();
+    let mut io = TcpStream::connect("example.com:80").unwrap();
+    io.set_nonblocking(true).unwrap();
+    io.write(b"GET /someinvalidurl HTTP/1.0\n\n").unwrap();
+    ml.call_io(Wrapper(io, String::new(), reply1)).unwrap();
+    ml.run();
+}
+

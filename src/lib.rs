@@ -44,6 +44,7 @@ use std::thread::ThreadId;
 pub enum MainLoopError {
     TooManyMainLoops,
     NoMainLoop,
+    Unsupported,
     DurationTooLong,
     Other(Box<std::error::Error>),
 }
@@ -58,14 +59,17 @@ enum CbKind<'a> {
     Asap(Box<dyn FnOnce() + 'a>),
     After(Box<dyn FnOnce() + 'a>, Duration),
     Interval(Box<dyn FnMut() -> bool + 'a>, Duration),
+    IO(Box<IOAble + 'a>),
 }
 
 impl<'a> CbKind<'a> {
     pub fn asap<F: FnOnce() + 'a>(f: F) -> Self { CbKind::Asap(Box::new(f)) }
     pub fn after<F: FnOnce() + 'a>(f: F, d: Duration) -> Self { CbKind::After(Box::new(f), d) }
     pub fn interval<F: FnMut() -> bool + 'a>(f: F, d: Duration) -> Self { CbKind::Interval(Box::new(f), d) }
+    pub fn io<IO: IOAble + 'a>(io: IO) -> Self { CbKind::IO(Box::new(io)) }
     pub fn duration(&self) -> Option<Duration> {
         match self {
+            CbKind::IO(_) => None,
             CbKind::Asap(_) => None,
             CbKind::After(_, d) => Some(*d),
             CbKind::Interval(_, d) => Some(*d),
@@ -137,26 +141,37 @@ pub fn call_thread<F: FnOnce() + Send + 'static>(thread: ThreadId, f: F) -> Resu
     mainloop::call_thread_internal(thread, Box::new(f)) 
 }
 
-/// Represents an object that can be read from and/or written to.
-///
-/// Should be implemented by fds on unix, handles and sockets on windows, std::net::TCPStream/UDPStream etc etc
-pub trait IOAble {
-    /* TODO */
-}
-
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum IODirection {
     None,
     Read,
     Write,
-    ReadWrite,
+    Both,
 }
 
-/// Runs a function when there is data to be read or written.
-///
-/// Return "true" from the callback function to continue running
-/// or "false" to remove the callback from the main loop.
-pub fn call_io<IO: IOAble, F: FnMut(&mut IO, IODirection) -> bool + 'static>(io: IO, dir: IODirection, f: F) -> Result<CbId, MainLoopError> {
-    unimplemented!()
+/// Represents an object that can be read from and/or written to.
+pub trait IOAble {
+    #[cfg(unix)]
+    fn fd(&self) -> std::os::unix::io::RawFd;
+    /* TODO: Windows handles and sockets */
+    fn direction(&self) -> IODirection { IODirection::Read }
+
+    fn on_rw(&mut self, _: Result<IODirection, std::io::Error>) {}
+    /* TODO: Handle Errors / hangup / etc */
+}
+
+/*
+#[cfg(unix)]
+impl<T> IOAble for T where T: std::os::unix::io::AsRawFd {
+    #[inline]
+    fn as_fd(&self) -> std::os::unix::io::RawFd { self.as_raw_fd() }
+}
+*/
+
+/// Calls IOAble's callbacks when there is data to be read or written.
+pub fn call_io<IO: IOAble + 'static>(io: IO) -> Result<CbId, MainLoopError> {
+    let cb = CbKind::io(io);
+    call_internal(cb)
 }
 
 /// Terminates the currently running main loop.

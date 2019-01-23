@@ -62,6 +62,7 @@ impl<'a> Backend<'a> {
                 CbKind::Interval(mut f, d) => if f() {
                     self.push_internal(Data { /* id: item.id, */ next: item.next + d, kind: CbKind::Interval(f, d)});
                 },
+                CbKind::IO(_) => unreachable!(),
             }
             true
         } else if wait {
@@ -82,6 +83,7 @@ impl<'a> Backend<'a> {
         d.insert(i, item);
     }
     pub (crate) fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {
+        if let CbKind::IO(_) = &cb { return Err(MainLoopError::Unsupported) };
         self.push_internal(Data {
             next: Instant::now() + cb.duration().unwrap_or(Duration::from_secs(0)),
             kind: cb

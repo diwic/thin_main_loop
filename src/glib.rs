@@ -1,15 +1,95 @@
 use std::marker::PhantomData;
-use crate::{CbKind, CbId, MainLoopError};
+use crate::{CbKind, CbId, MainLoopError, IODirection};
 use glib_sys;
-use std::panic;
+use std::{mem, panic};
 use std::any::Any;
 use std::cell::RefCell;
 use crate::mainloop::SendFnOnce;
+use std::os::raw::c_uint;
+
+const G_SOURCE_FUNCS: glib_sys::GSourceFuncs = glib_sys::GSourceFuncs {
+    prepare: None,// Option<unsafe extern "C" fn(_: *mut GSource, _: *mut c_int) -> gboolean>,
+    check: Some(glib_source_check_cb), // Option<unsafe extern "C" fn(_: *mut GSource) -> gboolean>,
+    dispatch: Some(glib_source_dispatch_cb), // Option<unsafe extern "C" fn(_: *mut GSource, _: GSourceFunc, _: gpointer) -> gboolean>,
+    finalize: None, // Option<unsafe extern "C" fn(_: *mut GSource)>,
+    closure_callback: None, // GSourceFunc,
+    closure_marshal: None, // GSourceDummyMarshal,
+};
+
+#[repr(C)]
+struct GSourceData {
+    gsource: glib_sys::GSource,
+//    funcs: glib_sys::GSourceFuncs,
+    tag: glib_sys::gpointer,
+}
 
 pub struct Backend<'a> {
     ctx: *mut glib_sys::GMainContext,
     _z: PhantomData<&'a u8>
 }
+
+unsafe extern "C" fn glib_source_check_cb(gs: *mut glib_sys::GSource) -> glib_sys::gboolean {
+    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        let tag = {
+            let ss: &mut GSourceData = &mut *(gs as *mut _);
+            ss.tag
+        };
+        let cond = glib_sys::g_source_query_unix_fd(gs, tag);
+        // println!("Check {:?} {:?}!", tag, cond);
+        if cond == 0 { glib_sys::GFALSE } else { glib_sys::GTRUE }
+   }))
+   {
+        Err(e) => {
+            current_panic.with(|cp| { *cp.borrow_mut() = Some(e) });
+            glib_sys::GFALSE
+        },
+        Ok(k) => k,
+    }
+}
+
+unsafe extern "C" fn glib_source_dispatch_cb(gs: *mut glib_sys::GSource, _: glib_sys::GSourceFunc, x: glib_sys::gpointer) -> glib_sys::gboolean {
+    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        // println!("Dispatch!");
+        let x = x as *mut _ as *mut CbKind;
+        let tag = {
+            let ss: &mut GSourceData = &mut *(gs as *mut _);
+            ss.tag
+        };
+        let cond = glib_sys::g_source_query_unix_fd(gs, tag);
+        let dir = gio_to_dir(cond);
+        if let CbKind::IO(io) = &mut (*x) {
+            io.on_rw(dir);
+        } else { unreachable!(); }
+   }))
+   {
+        Err(e) => {
+            current_panic.with(|cp| { *cp.borrow_mut() = Some(e) });
+            glib_sys::GFALSE
+        },
+        _ => glib_sys::GTRUE,
+    }    
+}
+
+fn dir_to_gio(d: IODirection) -> glib_sys::GIOCondition {
+    glib_sys::G_IO_HUP + glib_sys::G_IO_ERR + match d {
+        IODirection::None => 0,
+        IODirection::Read => glib_sys::G_IO_IN,
+        IODirection::Write => glib_sys::G_IO_OUT,
+        IODirection::Both => glib_sys::G_IO_IN + glib_sys::G_IO_OUT,
+    }
+}
+
+fn gio_to_dir(cond: glib_sys::GIOCondition) -> Result<IODirection, std::io::Error> {
+    const BOTH: c_uint = glib_sys::G_IO_IN + glib_sys::G_IO_OUT;
+    match cond {
+       0 => Ok(IODirection::None),
+       glib_sys::G_IO_IN => Ok(IODirection::Read),
+       glib_sys::G_IO_OUT => Ok(IODirection::Write),
+       BOTH => Ok(IODirection::Both),
+       _ => unimplemented!(),
+    }
+}
+
 
 unsafe extern fn glib_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
     match panic::catch_unwind(panic::AssertUnwindSafe(|| {
@@ -21,6 +101,7 @@ unsafe extern fn glib_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
             CbKind::After(f, _) => f(),
             CbKind::Asap(f) => f(),
             CbKind::Interval(_, _) => {},
+            CbKind::IO(_) => unimplemented!(),
         }
         false
    }))
@@ -97,15 +178,23 @@ impl<'a> Backend<'a> {
         r
     }
     pub (crate) fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {
-        let d = cb.duration_millis()?;
+        let s = unsafe { match &cb {
+            CbKind::IO(io) => {
+                let s = glib_sys::g_source_new(&G_SOURCE_FUNCS as *const _ as *mut _, mem::size_of::<GSourceData>() as u32);
+                let tag = glib_sys::g_source_add_unix_fd(s, io.fd(), dir_to_gio(io.direction()));
+                // println!("Tag: {:?}", tag);
+                let ss: &mut GSourceData = &mut *(s as *mut _);
+                ss.tag = tag;
+                s
+            },
+            CbKind::Asap(_) => glib_sys::g_idle_source_new(),
+            CbKind::After(_,_) | CbKind::Interval(_,_) => 
+                glib_sys::g_timeout_source_new(cb.duration_millis()?.unwrap()),
+        }};
+
         let x = Box::into_raw(Box::new(cb));
         let x = x as *mut _ as glib_sys::gpointer;
-        unsafe { 
-            let s = if let Some(d) = d {
-                glib_sys::g_timeout_source_new(d)
-            } else {
-                glib_sys::g_idle_source_new()
-            };
+        unsafe {
             glib_sys::g_source_set_callback(s, Some(glib_cb), x, None);
             glib_sys::g_source_set_priority(s, glib_sys::G_PRIORITY_DEFAULT);
             glib_sys::g_source_attach(s, self.ctx);
