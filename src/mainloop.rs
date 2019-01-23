@@ -232,7 +232,7 @@ fn thread_test() {
 fn io_test() {
     use std::net::TcpStream;
     use std::io::{Write, Read};
-    use crate::IODirection;
+    use crate::{IOReader, IODirection};
 
     // Let's first make a blocking call.
     let mut io = TcpStream::connect("example.com:80").unwrap();
@@ -241,30 +241,26 @@ fn io_test() {
     io.read_to_string(&mut reply1).unwrap();
     println!("{}", reply1);
 
-    struct Wrapper(TcpStream, String, String);
-    use std::os::unix::io::{RawFd, AsRawFd};
-    impl IOAble for Wrapper {
-        fn fd(&self) -> RawFd { self.0.as_raw_fd() }
-        fn on_rw(&mut self, x: Result<IODirection, std::io::Error>) {
-            println!("on_rw: {:?}", x);
-            let r = self.0.read_to_string(&mut self.1);
-            println!("r = {:?}, len = {}", r, self.1.len());
-            if let Ok(n) = r {
-                if n == 0 {
-                     println!("{}", self.1);
-                     assert_eq!(self.1, self.2);
-                     terminate();     
-                }
-            }
-        }
-    }
-
     // And now the non-blocking call.
     let mut ml = MainLoop::new().unwrap();
     let mut io = TcpStream::connect("example.com:80").unwrap();
     io.set_nonblocking(true).unwrap();
     io.write(b"GET /someinvalidurl HTTP/1.0\n\n").unwrap();
-    ml.call_io(Wrapper(io, String::new(), reply1)).unwrap();
+
+    let mut reply2 = String::new();
+    let wr = IOReader { io: io, f: move |io: &mut TcpStream, x| {
+        assert_eq!(x.unwrap(), IODirection::Read);
+        let r = io.read_to_string(&mut reply2);
+        println!("r = {:?}, len = {}", r, reply2.len());
+        if let Ok(n) = r {
+            if n == 0 {
+                 println!("{}", reply2);
+                 assert_eq!(reply1, reply2);
+                 terminate();
+            }
+        }
+    }};
+    ml.call_io(wr).unwrap();
     ml.run();
 }
 
