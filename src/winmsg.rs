@@ -1,14 +1,17 @@
 use std::marker::PhantomData;
-use crate::{CbKind, CbId, MainLoopError};
+use crate::{CbKind, CbId, MainLoopError, IODirection, IOAble};
 use crate::mainloop::SendFnOnce;
 use winapi;
 use std::{mem, ptr};
 use std::sync::{Once, Arc};
+use std::collections::HashMap;
+use std::cell::RefCell;
 
 use winapi::shared::windef::HWND;
 use winapi::um::winuser;
 use winapi::um::libloaderapi;
 use winapi::um::winnt;
+use winapi::um::winsock2;
 
 struct OwnedHwnd(HWND);
 
@@ -36,8 +39,14 @@ impl SendFnOnce for Arc<OwnedHwnd> {
 }
 
 const WM_CALL_ASAP: u32 = winuser::WM_USER + 10;
+const WM_SOCKET: u32 = winuser::WM_USER + 11;
 static WINDOW_CLASS: Once = Once::new();
 static WINDOW_CLASS_NAME: &[u8] = b"Rust function dispatch\0";
+
+thread_local! {
+    static sockets: RefCell<HashMap<winsock2::SOCKET, *mut IOAble>> = Default::default();
+
+}
 
 fn ensure_window_class() {
     // println!("ensure_window_class window class start");
@@ -54,7 +63,25 @@ fn ensure_window_class() {
 }
 
 unsafe extern "system" fn wnd_callback(wnd: HWND, msg: u32, wparam: usize, lparam: isize) -> isize {
-    if msg == WM_CALL_ASAP || msg == winuser::WM_TIMER {
+    // FIXME: panic handling
+    if msg == WM_SOCKET {
+        println!("WM_Socket: {} {}", wparam, lparam);
+        let dir = match (lparam as i32) & (winsock2::FD_READ | winsock2::FD_WRITE) {
+            0 => Ok(IODirection::None),
+            winsock2::FD_READ => Ok(IODirection::Read),
+            winsock2::FD_WRITE => Ok(IODirection::Write),
+            _ => Ok(IODirection::Both),
+        };
+        // FIXME: And what about socket errors? 
+        sockets.with(|s| {
+            if let Some(io) = s.borrow_mut().get_mut(&wparam) {
+                let x: &mut IOAble = &mut (**io);
+                x.on_rw(dir);
+            } else { unreachable!(); }
+        });
+        0
+    }
+    else if msg == WM_CALL_ASAP || msg == winuser::WM_TIMER {
         let x = wparam as *mut CbKind;
         if let CbKind::Interval(f, _) = &mut (*x) { 
             if f() { return 0 };
@@ -68,6 +95,7 @@ unsafe extern "system" fn wnd_callback(wnd: HWND, msg: u32, wparam: usize, lpara
             CbKind::Interval(_, _) => {
                 winuser::KillTimer(wnd, wparam);
             },
+            CbKind::IO(_) => unreachable!(),
         }
         0
     } else {
@@ -114,6 +142,23 @@ impl<'a> Backend<'a> {
         }
     }
     pub (crate) fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {
+        if let CbKind::IO(io) = cb {
+            let events = match io.direction() {
+                IODirection::None => 0,
+                IODirection::Read => winsock2::FD_READ,
+                IODirection::Write => winsock2::FD_WRITE,
+                IODirection::Both => winsock2::FD_READ | winsock2::FD_WRITE,
+            } + winsock2::FD_CLOSE;
+            let sock = io.socket();
+            unsafe { winsock2::WSAAsyncSelect(sock as usize, self.wnd.0, WM_SOCKET, events) };
+            sockets.with(|s| {
+                let x: *mut (dyn IOAble + 'a) = Box::into_raw(io);
+                // FIXME: We transmute from 'a to 'static here, how safe is that?
+                let x: *mut (dyn IOAble + 'static) = unsafe { mem::transmute(x) };
+                s.borrow_mut().insert(sock as usize, x);
+            });
+            return Ok(CbId());
+        }
         let d = cb.duration_millis()?;
         let x = Box::into_raw(Box::new(cb));
         match d {

@@ -17,7 +17,7 @@ features = ["v2_36"]
 [dependencies.winapi]
 version = "0.3"
 optional = true
-features = ["winuser", "libloaderapi", "std"]
+features = ["winuser", "libloaderapi", "std", "winsock2"]
 
 [dependencies.web-sys]
 version = "0.3.4"

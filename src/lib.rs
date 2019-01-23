@@ -153,7 +153,9 @@ pub enum IODirection {
 pub trait IOAble {
     #[cfg(unix)]
     fn fd(&self) -> std::os::unix::io::RawFd;
-    /* TODO: Windows handles and sockets */
+    #[cfg(windows)]
+    fn socket(&self) -> std::os::windows::io::RawSocket;
+
     fn direction(&self) -> IODirection;
 
     fn on_rw(&mut self, _: Result<IODirection, std::io::Error>) {}
@@ -179,6 +181,18 @@ where IO: std::os::unix::io::AsRawFd,
     }
 }
 
+#[cfg(windows)]
+impl<IO, F> IOAble for IOReader<IO, F>
+where IO: std::os::windows::io::AsRawSocket,
+      F: FnMut(&mut IO, Result<IODirection, std::io::Error>)
+{
+    fn socket(&self) -> std::os::windows::io::RawSocket { self.io.as_raw_socket() }
+
+    fn direction(&self) -> IODirection { IODirection::Read }
+    fn on_rw(&mut self, r: Result<IODirection, std::io::Error>) {
+        (self.f)(&mut self.io, r)
+    }
+}
 
 /// Calls IOAble's callbacks when there is data to be read or written.
 pub fn call_io<IO: IOAble + 'static>(io: IO) -> Result<CbId, MainLoopError> {

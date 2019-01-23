@@ -10,6 +10,7 @@ Because Rust's native GUI story starts with the main loop.
  * Bind to the best backend on each platform
  * Compatible with Futures/await/async, when it settles
  * No extra background threads
+ * Provide access to raw handles to allow platform specific extensions
 
 ## Non-goals
 
@@ -19,7 +20,12 @@ Because Rust's native GUI story starts with the main loop.
 
 ## Status
 
-The library has functions for running a callback ASAP (as soon as the main loop gets a chance to run something), after a timeout, or at regular intervals. Sending a callback to another thread is also supported.
+The library has functions for running a callback:
+ * ASAP (as soon as the main loop gets a chance to run something),
+ * after a timeout,
+ * at regular intervals,
+ * ASAP, but in another thread,
+ * when an I/O object is ready of reading or writing.
 
 Maturity: None. It's a proof-of-concept, to spawn discussion and interest.
 
@@ -29,9 +35,9 @@ Needs nightly Rust due to [Box FnOnce](https://github.com/rust-lang/rust/issues/
 
 Currently:
 
- * Win32 API (compile with `--features "win32"`)
- * Glib (compile with `--features "glib"`)
- * Rust std (if you don't specify any features)
+ * Win32 API - compile with `--features "win32"`
+ * Glib - compile with `--features "glib"`
+ * Rust std - reference implementation, does not support I/O.
 
 Wishlist:
 
