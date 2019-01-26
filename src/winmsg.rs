@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 use crate::{CbKind, CbId, MainLoopError, IODirection, IOAble};
-use crate::mainloop::SendFnOnce;
+use crate::mainloop::{SendFnOnce, ffi_cb_wrapper};
 use winapi;
 use std::{mem, ptr};
 use std::sync::{Once, Arc};
@@ -63,44 +63,45 @@ fn ensure_window_class() {
 }
 
 unsafe extern "system" fn wnd_callback(wnd: HWND, msg: u32, wparam: usize, lparam: isize) -> isize {
-    // FIXME: panic handling
-    if msg == WM_SOCKET {
-        println!("WM_Socket: {} {}", wparam, lparam);
-        let dir = match (lparam as i32) & (winsock2::FD_READ | winsock2::FD_WRITE) {
-            0 => Ok(IODirection::None),
-            winsock2::FD_READ => Ok(IODirection::Read),
-            winsock2::FD_WRITE => Ok(IODirection::Write),
-            _ => Ok(IODirection::Both),
-        };
-        // FIXME: And what about socket errors? 
-        sockets.with(|s| {
-            if let Some(io) = s.borrow_mut().get_mut(&wparam) {
-                let x: &mut IOAble = &mut (**io);
-                x.on_rw(dir);
-            } else { unreachable!(); }
-        });
-        0
-    }
-    else if msg == WM_CALL_ASAP || msg == winuser::WM_TIMER {
-        let x = wparam as *mut CbKind;
-        if let CbKind::Interval(f, _) = &mut (*x) { 
-            if f() { return 0 };
+    ffi_cb_wrapper(|| {
+        if msg == WM_SOCKET {
+            println!("WM_Socket: {} {}", wparam, lparam);
+            let dir = match (lparam as i32) & (winsock2::FD_READ | winsock2::FD_WRITE) {
+                0 => Ok(IODirection::None),
+                winsock2::FD_READ => Ok(IODirection::Read),
+                winsock2::FD_WRITE => Ok(IODirection::Write),
+                _ => Ok(IODirection::Both),
+            };
+            // FIXME: And what about socket errors? 
+            sockets.with(|s| {
+                if let Some(io) = s.borrow_mut().get_mut(&wparam) {
+                    let x: &mut IOAble = &mut (**io);
+                    x.on_rw(dir);
+                } else { unreachable!(); }
+            });
+            0
         }
-        match *Box::from_raw(x) {
-            CbKind::After(f, _) => {
-                winuser::KillTimer(wnd, wparam);
-                f()
-            },
-            CbKind::Asap(f) => f(),
-            CbKind::Interval(_, _) => {
-                winuser::KillTimer(wnd, wparam);
-            },
-            CbKind::IO(_) => unreachable!(),
+        else if msg == WM_CALL_ASAP || msg == winuser::WM_TIMER {
+            let x = wparam as *mut CbKind;
+            if let CbKind::Interval(f, _) = &mut (*x) { 
+                if f() { return 0 };
+            }
+            match *Box::from_raw(x) {
+                CbKind::After(f, _) => {
+                    winuser::KillTimer(wnd, wparam);
+                    f()
+                },
+                CbKind::Asap(f) => f(),
+                CbKind::Interval(_, _) => {
+                    winuser::KillTimer(wnd, wparam);
+                },
+                CbKind::IO(_) => unreachable!(),
+            }
+            0
+        } else {
+            winuser::DefWindowProcA(wnd, msg, wparam, lparam)
         }
-        0
-    } else {
-        winuser::DefWindowProcA(wnd, msg, wparam, lparam)
-    }
+    }, 0)
 } 
 
 impl<'a> Backend<'a> {
