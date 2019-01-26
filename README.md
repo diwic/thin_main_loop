@@ -2,6 +2,8 @@
 
 Because Rust's native GUI story starts with the main loop.
 
+(Btw, this library might be useful for many other use cases too.)
+
 ## Goals
 
  * Callback based, but still ergonomic API
@@ -27,9 +29,11 @@ The library has functions for running a callback:
  * ASAP, but in another thread,
  * when an I/O object is ready of reading or writing.
 
-Maturity: None. It's a proof-of-concept, to spawn discussion and interest.
+Maturity: Just up and running, not battle-tested. It's also a proof-of-concept, to spawn discussion and interest.
 
-Needs nightly Rust due to [Box FnOnce](https://github.com/rust-lang/rust/issues/28796), but hopefully that's on the road towards stabilization soon.
+Unsafe blocks: Only at the backend/FFI level. With the reference (Rust std) backend, there is no unsafe code at all.
+
+Rust version: Nightly, due to [Box FnOnce](https://github.com/rust-lang/rust/issues/28796), but hopefully that's on the road towards stabilization soon.
 
 ## Supported platforms
 
@@ -84,6 +88,34 @@ ml.call_asap(|| {
 })
 ml.run();
 // After one second, the main loop is terminated.
+```
+
+## I/O
+
+The following example connects to a TCP server and prints everything coming in.
+
+```rust
+// extern crate thin_main_loop as tml;
+
+let mut io = TcpStream::connect(/* ..select server here.. */)?;
+io.set_nonblocking(true)?;
+let wr = tml::IOReader { io: io, f: move |io: &mut TcpStream, x| {
+    // On incoming data, read it all
+    let mut s = String::new();
+    let r = io.read_to_string(&mut s);
+
+    // If we got something, print it
+    if s != "" { println!(s); }
+
+    // This is TcpStream's way of saying "connection closed"
+    if let Ok(0) = r { tml::terminate(); }
+}
+
+let mut ml = MainLoop::new()?;
+ml.call_io(wr)?;
+ml.run();
+
+
 ```
 
 # Background
