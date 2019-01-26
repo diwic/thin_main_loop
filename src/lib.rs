@@ -162,7 +162,8 @@ pub trait IOAble {
     /* TODO: Handle Errors / hangup / etc */
 }
 
-
+/// The most common I/O object is one from which you can read asynchronously.
+/// This is a simple convenience wrapper for that kind of I/O object.
 pub struct IOReader<IO, F: FnMut(&mut IO, Result<IODirection, std::io::Error>)>{
     pub io: IO,
     pub f: F,
