@@ -2,9 +2,7 @@ use std::marker::PhantomData;
 use crate::{CbKind, CbId, MainLoopError, IODirection};
 use glib_sys;
 use std::{mem, panic};
-use std::any::Any;
-use std::cell::RefCell;
-use crate::mainloop::SendFnOnce;
+use crate::mainloop::{SendFnOnce, ffi_cb_wrapper};
 use std::os::raw::c_uint;
 
 const G_SOURCE_FUNCS: glib_sys::GSourceFuncs = glib_sys::GSourceFuncs {
@@ -29,7 +27,7 @@ pub struct Backend<'a> {
 }
 
 unsafe extern "C" fn glib_source_check_cb(gs: *mut glib_sys::GSource) -> glib_sys::gboolean {
-    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+    ffi_cb_wrapper(|| {
         let tag = {
             let ss: &mut GSourceData = &mut *(gs as *mut _);
             ss.tag
@@ -37,18 +35,11 @@ unsafe extern "C" fn glib_source_check_cb(gs: *mut glib_sys::GSource) -> glib_sy
         let cond = glib_sys::g_source_query_unix_fd(gs, tag);
         // println!("Check {:?} {:?}!", tag, cond);
         if cond == 0 { glib_sys::GFALSE } else { glib_sys::GTRUE }
-   }))
-   {
-        Err(e) => {
-            current_panic.with(|cp| { *cp.borrow_mut() = Some(e) });
-            glib_sys::GFALSE
-        },
-        Ok(k) => k,
-    }
+   }, glib_sys::GFALSE)
 }
 
 unsafe extern "C" fn glib_source_dispatch_cb(gs: *mut glib_sys::GSource, _: glib_sys::GSourceFunc, x: glib_sys::gpointer) -> glib_sys::gboolean {
-    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+    ffi_cb_wrapper(|| {
         // println!("Dispatch!");
         let x = x as *mut _ as *mut CbKind;
         let tag = {
@@ -60,14 +51,8 @@ unsafe extern "C" fn glib_source_dispatch_cb(gs: *mut glib_sys::GSource, _: glib
         if let CbKind::IO(io) = &mut (*x) {
             io.on_rw(dir);
         } else { unreachable!(); }
-   }))
-   {
-        Err(e) => {
-            current_panic.with(|cp| { *cp.borrow_mut() = Some(e) });
-            glib_sys::GFALSE
-        },
-        _ => glib_sys::GTRUE,
-    }    
+        glib_sys::GTRUE
+   }, glib_sys::GFALSE)
 }
 
 fn dir_to_gio(d: IODirection) -> glib_sys::GIOCondition {
@@ -92,10 +77,10 @@ fn gio_to_dir(cond: glib_sys::GIOCondition) -> Result<IODirection, std::io::Erro
 
 
 unsafe extern fn glib_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
-    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+    ffi_cb_wrapper(|| {
         let x = x as *mut _ as *mut CbKind;
         if let CbKind::Interval(f, _) = &mut (*x) { 
-            if f() { return true }
+            if f() { return glib_sys::GTRUE }
         }
         match *Box::from_raw(x) {
             CbKind::After(f, _) => f(),
@@ -103,15 +88,8 @@ unsafe extern fn glib_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
             CbKind::Interval(_, _) => {},
             CbKind::IO(_) => unimplemented!(),
         }
-        false
-   }))
-   {
-        Ok(x) => if x { glib_sys::GTRUE } else { glib_sys::GFALSE }
-        Err(e) => {
-            current_panic.with(|cp| { *cp.borrow_mut() = Some(e) });
-            glib_sys::GFALSE
-        }
-   }
+        glib_sys::GFALSE
+   }, glib_sys::GFALSE)
 }
 
 struct Dummy(Box<dyn FnOnce() + Send + 'static>);
@@ -125,25 +103,13 @@ impl Drop for Sender {
 }
 
 unsafe extern fn glib_send_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
-    match panic::catch_unwind(panic::AssertUnwindSafe(|| {
+    ffi_cb_wrapper(|| {
         let x: Box<Dummy> = Box::from_raw(x as *mut _);
         let f = x.0;
-        f()
-   }))
-   {
-        Err(e) => {
-            current_panic.with(|cp| { *cp.borrow_mut() = Some(e) });
-        },
-        _ => {},
-    }    
+        f();
+    }, ());
     glib_sys::GFALSE
 }
-
-
-thread_local! {
-    static current_panic: RefCell<Option<Box<dyn Any + Send + 'static>>> = Default::default();
-}
-
 
 impl SendFnOnce for Sender {
     fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
@@ -174,7 +140,6 @@ impl<'a> Backend<'a> {
     pub fn run_one(&self, wait: bool) -> bool {
         let w = if wait { glib_sys::GTRUE } else { glib_sys::GFALSE };
         let r = unsafe { glib_sys::g_main_context_iteration(self.ctx, w) != glib_sys::GFALSE };
-        if let Some(e) = current_panic.with(|cp| { cp.borrow_mut().take() }) { panic::resume_unwind(e) }
         r
     }
     pub (crate) fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {

@@ -7,16 +7,43 @@ use crate::winmsg::Backend;
 #[cfg(not(any(feature = "win32", feature = "glib")))]
 use crate::ruststd::Backend;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::ptr::NonNull;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::panic;
+use std::any::Any;
 use std::time::Duration;
 use std::sync::Mutex;
 use std::collections::HashMap;
 use std::thread::ThreadId;
 use crate::{CbKind, CbId, MainLoopError, IOAble};
+
+thread_local! {
+    static current_panic: RefCell<Option<Box<dyn Any + Send + 'static>>> = Default::default();
+}
+
+pub (crate) fn ffi_cb_wrapper<R, F: FnOnce() -> R>(f: F, on_panic: R) -> R {
+    match panic::catch_unwind(panic::AssertUnwindSafe(|| { f() })) {
+        Ok(x) => x,
+        Err(e) => {
+            current_panic.with(|cp| {
+                // We should never get a double panic, but if we do, let's ignore the info from the second one.
+                // Probably the info from the first one is the more helpful.
+                let _ = cp.try_borrow_mut().map(|mut cp| { *cp = Some(e); });
+            });
+            on_panic
+        }
+    }
+}
+
+fn ffi_resume_panic() {
+    if let Some(e) = current_panic.with(|cp| cp.borrow_mut().take()) {
+        panic::resume_unwind(e)
+    }
+}
+
+
 
 pub (crate) fn call_internal(cb: CbKind<'static>) -> Result<CbId, MainLoopError> {
     current_loop.with(|ml| {
@@ -95,6 +122,7 @@ impl<'a> MainLoop<'a> {
         self.with_current_loop(|| {
             while !self.terminated.get() {
                 self.backend.run_one(true);
+                ffi_resume_panic();
             }
         })
     }
@@ -104,6 +132,7 @@ impl<'a> MainLoop<'a> {
         self.with_current_loop(|| {
             if !self.terminated.get() {
                 self.backend.run_one(false);
+                ffi_resume_panic();
             }
         })
     }
@@ -232,7 +261,7 @@ fn thread_test() {
 fn io_test() {
     use std::net::TcpStream;
     use std::io::{Write, Read};
-    use crate::{IOReader, IODirection};
+    use crate::IOReader;
 
     // Let's first make a blocking call.
     let mut io = TcpStream::connect("example.com:80").unwrap();
