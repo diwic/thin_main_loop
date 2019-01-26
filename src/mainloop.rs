@@ -294,3 +294,13 @@ fn io_test() {
     ml.run();
 }
 
+#[test]
+fn panic_inside_cb() {
+    let mut ml = MainLoop::new().unwrap();
+    ml.call_asap(|| { panic!("Keep calm and carry on"); }).unwrap();
+    let z = panic::catch_unwind(panic::AssertUnwindSafe(|| { ml.run(); }));
+    let z = z.unwrap_err();
+    let zstr = z.downcast_ref::<&str>().unwrap();
+    assert_eq!(*zstr, "Keep calm and carry on");
+}
+
