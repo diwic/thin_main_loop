@@ -265,7 +265,7 @@ fn io_test() {
 
     // Let's first make a blocking call.
     let mut io = TcpStream::connect("example.com:80").unwrap();
-    io.write(b"GET /someinvalidurl HTTP/1.0\n\n").unwrap();
+    io.write(b"GET /someinvalidurl HTTP/1.0\r\n\r\n").unwrap();
     let mut reply1 = String::new();
     io.read_to_string(&mut reply1).unwrap();
     println!("{}", reply1);
@@ -274,7 +274,7 @@ fn io_test() {
     let mut ml = MainLoop::new().unwrap();
     let mut io = TcpStream::connect("example.com:80").unwrap();
     io.set_nonblocking(true).unwrap();
-    io.write(b"GET /someinvalidurl HTTP/1.0\n\n").unwrap();
+    io.write(b"GET /someinvalidurl HTTP/1.0\r\n\r\n").unwrap();
 
     let mut reply2 = String::new();
     let wr = IOReader { io: io, f: move |io: &mut TcpStream, x| {
@@ -285,7 +285,12 @@ fn io_test() {
         if let Ok(n) = r {
             if n == 0 {
                  println!("{}", reply2);
-                 assert_eq!(reply1, reply2);
+                 // Skip the headers, they contain a date field that causes spurious failures
+                 let r1: Vec<_> = reply1.split("\r\n\r\n").collect();
+                 let r2: Vec<_> = reply2.split("\r\n\r\n").collect();
+                 assert_eq!(r1.len(), r2.len());
+                 assert!(r2.len() > 1);
+                 assert_eq!(r1[1], r2[1]);
                  terminate();
             }
         }
