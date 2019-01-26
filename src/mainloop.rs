@@ -8,7 +8,6 @@ use crate::winmsg::Backend;
 use crate::ruststd::Backend;
 
 use std::cell::{Cell, RefCell};
-use std::ptr::NonNull;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::panic;
@@ -19,39 +18,37 @@ use std::collections::HashMap;
 use std::thread::ThreadId;
 use crate::{CbKind, CbId, MainLoopError, IOAble};
 
+
+#[derive(Default)]
+struct MlTls {
+    exists: Cell<bool>,
+    terminated: Cell<bool>,
+    running: Cell<bool>,
+    in_queue: RefCell<Vec<CbKind<'static>>>,
+    current_panic: RefCell<Option<Box<dyn Any + Send + 'static>>>,
+}
+
+// Panic handling
+
 thread_local! {
-    static current_panic: RefCell<Option<Box<dyn Any + Send + 'static>>> = Default::default();
+    static ml_tls: MlTls = Default::default();
 }
 
 pub (crate) fn ffi_cb_wrapper<R, F: FnOnce() -> R>(f: F, on_panic: R) -> R {
     match panic::catch_unwind(panic::AssertUnwindSafe(|| { f() })) {
         Ok(x) => x,
         Err(e) => {
-            current_panic.with(|cp| {
+            ml_tls.with(|m| {
                 // We should never get a double panic, but if we do, let's ignore the info from the second one.
                 // Probably the info from the first one is the more helpful.
-                let _ = cp.try_borrow_mut().map(|mut cp| { *cp = Some(e); });
+                let _ = m.current_panic.try_borrow_mut().map(|mut cp| { *cp = Some(e); });
             });
             on_panic
         }
     }
 }
 
-fn ffi_resume_panic() {
-    if let Some(e) = current_panic.with(|cp| cp.borrow_mut().take()) {
-        panic::resume_unwind(e)
-    }
-}
-
-
-
-pub (crate) fn call_internal(cb: CbKind<'static>) -> Result<CbId, MainLoopError> {
-    current_loop.with(|ml| {
-        let ml = ml.get().ok_or(MainLoopError::NoMainLoop)?;
-        let ml = unsafe { ml.as_ref() };
-        ml.backend.push(cb)
-    })
-}
+// Thread sends
 
 pub (crate) trait SendFnOnce: Send {
     fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError>;
@@ -61,36 +58,35 @@ lazy_static! {
     static ref THREAD_SENDER: Mutex<HashMap<ThreadId, Box<SendFnOnce>>> = Default::default();
 }
 
-
 pub (crate) fn call_thread_internal(thread: ThreadId, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
     let map = THREAD_SENDER.lock().unwrap();
     let sender = map.get(&thread).ok_or(MainLoopError::NoMainLoop)?;
     sender.send(f)
 }
 
+
+
+pub (crate) fn call_internal(cb: CbKind<'static>) -> Result<(), MainLoopError> {
+    ml_tls.with(|m| {
+        if !m.exists.get() { return Err(MainLoopError::NoMainLoop) }
+        m.in_queue.borrow_mut().push(cb);
+        Ok(())
+    })
+}
+
 pub (crate) fn terminate() {
-    current_loop.with(|ml| {
-        if let Some(ml) = ml.get() { 
-            let ml = unsafe { ml.as_ref() };
-            ml.quit(); 
-        }
+    ml_tls.with(|m| {
+        m.terminated.set(true);
     });
 }
 
-thread_local! {
-    static current_loop: Cell<Option<NonNull<MainLoop<'static>>>> = Default::default();
-}
-
-
-
 pub struct MainLoop<'a> {
-    terminated: Cell<bool>,
     backend: Backend<'a>,
     _z: PhantomData<Rc<()>>, // !Send, !Sync
 }
 
 impl<'a> MainLoop<'a> {
-    pub fn quit(&self) { self.terminated.set(true) }
+    pub fn terminate(&self) { terminate() }
     pub fn call_asap<F: FnOnce() + 'a>(&self, f: F) -> Result<CbId, MainLoopError> {
         self.backend.push(CbKind::asap(f))
     }
@@ -104,58 +100,70 @@ impl<'a> MainLoop<'a> {
         self.backend.push(CbKind::io(io))
     }
 
-    fn with_current_loop<F: FnOnce()>(&self, f: F) {
-        if self.terminated.get() { return; }
-        current_loop.with(|ml| {
-            if ml.get().is_some() { panic!("Reentrant call to MainLoop") }
-            ml.set(Some(NonNull::from(self).cast()));
-        });
-        let r = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-             f()
-        }));
-        current_loop.with(|ml| { ml.set(None); });
-        if let Err(e) = r { panic::resume_unwind(e) };
+    fn run_wrapper<F: FnOnce()>(&self, f: F) -> bool {
+        ml_tls.with(|m| {
+            if m.terminated.get() { return false; }
+            {
+                let mut q = m.in_queue.borrow_mut();
+                for cbk in q.drain(..) {
+                    self.backend.push(cbk).unwrap(); // TODO: Should probably be reported better
+                }
+            }
+            if m.running.get() { panic!("Reentrant call to MainLoop") }
+            m.running.set(true);
+            f();
+            m.running.set(false);
+            if let Some(e) = m.current_panic.borrow_mut().take() {
+                panic::resume_unwind(e);
+            }
+            true
+        })
     }
 
     /// Runs the main loop until terminated.
     pub fn run(&mut self) {
-        self.with_current_loop(|| {
-            while !self.terminated.get() {
-                self.backend.run_one(true);
-                ffi_resume_panic();
-            }
-        })
+        while self.run_wrapper(|| {
+            self.backend.run_one(true);
+        }) {}
     }
 
     /// Runs the main loop once, without waiting.
     pub fn run_one(&mut self) {
-        self.with_current_loop(|| {
-            if !self.terminated.get() {
-                self.backend.run_one(false);
-                ffi_resume_panic();
-            }
-        })
+        self.run_wrapper(|| {
+            self.backend.run_one(false);
+        });
     }
 
     /// Creates a new main loop
     pub fn new() -> Result<Self, MainLoopError> {
-        let (be, sender) = Backend::new()?;
-        let thread_id = std::thread::current().id();
-        {
-            let mut s = THREAD_SENDER.lock().unwrap();
-            if s.contains_key(&thread_id) { return Err(MainLoopError::TooManyMainLoops) };
-            s.insert(thread_id, sender);
-        }
-        Ok(MainLoop { 
-            terminated: Cell::new(false),
-            backend: be,
-            _z: PhantomData 
+        ml_tls.with(|m| {
+            if m.exists.get() { return Err(MainLoopError::TooManyMainLoops) };
+
+            let (be, sender) = Backend::new()?;
+            let thread_id = std::thread::current().id();
+            {
+                let mut s = THREAD_SENDER.lock().unwrap();
+                if s.contains_key(&thread_id) { return Err(MainLoopError::TooManyMainLoops) };
+                s.insert(thread_id, sender);
+            }
+
+            m.in_queue.borrow_mut().clear();
+            m.current_panic.borrow_mut().take();
+            m.terminated.set(false);
+            m.running.set(false);
+            m.exists.set(true);
+
+            Ok(MainLoop { 
+                backend: be,
+                _z: PhantomData 
+            })
         })
     }
 }
 
 impl Drop for MainLoop<'_> {
     fn drop(&mut self) {
+        ml_tls.with(|m| { m.exists.set(false); });
         let thread_id = std::thread::current().id();
         THREAD_SENDER.lock().unwrap().remove(&thread_id);
     }

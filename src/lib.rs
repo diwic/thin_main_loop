@@ -85,7 +85,7 @@ impl<'a> CbKind<'a> {
     }
 }
 
-fn call_internal(cb: CbKind<'static>) -> Result<CbId, MainLoopError> { 
+fn call_internal(cb: CbKind<'static>) -> Result<(), MainLoopError> { 
     #[cfg(not(feature = "web"))]
     let r = mainloop::call_internal(cb);
 
@@ -102,7 +102,7 @@ fn call_internal(cb: CbKind<'static>) -> Result<CbId, MainLoopError> {
 /// * node.js: process.nextTick
 /// * web: Promise.resolve().then(...)
 /// * win32: PostMessage
-pub fn call_asap<F: FnOnce() + 'static>(f: F) -> Result<CbId, MainLoopError> {
+pub fn call_asap<F: FnOnce() + 'static>(f: F) -> Result<(), MainLoopError> {
     let cb = CbKind::asap(f);
     call_internal(cb)
 }
@@ -114,7 +114,7 @@ pub fn call_asap<F: FnOnce() + 'static>(f: F) -> Result<CbId, MainLoopError> {
 /// * node.js: setTimeout
 /// * web: window.setTimeout
 /// * win32: SetTimer
-pub fn call_after<F: FnOnce() + 'static>(d: Duration, f: F) -> Result<CbId, MainLoopError> {
+pub fn call_after<F: FnOnce() + 'static>(d: Duration, f: F) -> Result<(), MainLoopError> {
     let cb = CbKind::after(f, d);
     call_internal(cb)
 }
@@ -129,7 +129,7 @@ pub fn call_after<F: FnOnce() + 'static>(d: Duration, f: F) -> Result<CbId, Main
 /// * node.js: setInterval
 /// * web: window.setInterval
 /// * win32: SetTimer
-pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) -> Result<CbId, MainLoopError> {
+pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) -> Result<(), MainLoopError> {
     let cb = CbKind::interval(f, d);
     call_internal(cb)
 }
@@ -196,7 +196,7 @@ where IO: std::os::windows::io::AsRawSocket,
 }
 
 /// Calls IOAble's callbacks when there is data to be read or written.
-pub fn call_io<IO: IOAble + 'static>(io: IO) -> Result<CbId, MainLoopError> {
+pub fn call_io<IO: IOAble + 'static>(io: IO) -> Result<(), MainLoopError> {
     let cb = CbKind::io(io);
     call_internal(cb)
 }
