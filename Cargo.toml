@@ -1,8 +1,15 @@
 [package]
 name = "thin_main_loop"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["David Henningsson <diwic@ubuntu.com>"]
 edition = "2018"
+readme = "README.md"
+description = "Thin, cross-platform, main event loop. A building block for native GUI applications, among other use cases."
+repository = "https://github.com/diwic/thin_main_loop"
+documentation = "http://docs.rs/thin_main_loop"
+keywords = ["event", "loop", "message", "dispatcher", "main"]
+license = "Apache-2.0/MIT"
+categories = ["api-bindings", "asynchronous", "os::unix-apis", "os::windows-apis"]
 
 [dependencies]
 wasm-bindgen = { version = "0.2.29", optional = true }
