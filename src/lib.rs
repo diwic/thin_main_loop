@@ -28,7 +28,7 @@ mod ruststd;
 mod mainloop;
 
 #[cfg(not(feature = "web"))]
-pub use mainloop::MainLoop;
+pub use crate::mainloop::MainLoop;
 
 use std::time::Duration;
 use std::thread::ThreadId;
