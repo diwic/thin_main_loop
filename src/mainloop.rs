@@ -265,6 +265,7 @@ fn thread_test() {
     assert_eq!(x.load(Ordering::SeqCst), 1);
 }
 
+#[cfg(any(feature = "glib", feature = "win32"))]
 #[test]
 fn io_test() {
     use std::net::TcpStream;

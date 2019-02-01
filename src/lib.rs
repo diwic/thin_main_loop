@@ -5,9 +5,12 @@
 // Because Box<FnOnce>
 #![feature(unsized_locals)]
 
+#![cfg_attr(feature = "futures", feature(futures_api))]
+
 // Because this is just an unfinished prototype
 #![allow(unused_variables)]
 #![allow(dead_code)]
+
 
 #[macro_use]
 extern crate lazy_static;
@@ -33,7 +36,6 @@ pub use crate::mainloop::MainLoop;
 use std::time::Duration;
 use std::thread::ThreadId;
 
-// TODO: Threads (call something on another thread)
 // TODO: Cancel callbacks before they are run
 // TODO: Futures integration
 
@@ -67,6 +69,7 @@ impl<'a> CbKind<'a> {
     pub fn after<F: FnOnce() + 'a>(f: F, d: Duration) -> Self { CbKind::After(Box::new(f), d) }
     pub fn interval<F: FnMut() -> bool + 'a>(f: F, d: Duration) -> Self { CbKind::Interval(Box::new(f), d) }
     pub fn io<IO: IOAble + 'a>(io: IO) -> Self { CbKind::IO(Box::new(io)) }
+
     pub fn duration(&self) -> Option<Duration> {
         match self {
             CbKind::IO(_) => None,
@@ -82,6 +85,25 @@ impl<'a> CbKind<'a> {
             if s >= m as u64 { return Err(MainLoopError::DurationTooLong) }
             Ok(Some((s as u32) * 1000 + d.subsec_millis()))
         } else { Ok(None) } 
+    }
+
+    // If "false" is returned, please continue with making a call to post_call_mut.
+    pub (crate) fn call_mut(&mut self, io_dir: Option<Result<IODirection, std::io::Error>>) -> bool {
+        match self {
+            CbKind::Interval(f, _) => f(),
+            CbKind::IO(io) => io.on_rw(io_dir.unwrap()),
+            CbKind::After(_, _) => false,
+            CbKind::Asap(_) => false,
+        }
+    }
+
+    pub (crate) fn post_call_mut(self) {
+        match self {
+            CbKind::After(f, _) => f(),
+            CbKind::Asap(f) => f(),
+            CbKind::Interval(_, _) => {},
+            CbKind::IO(_) => {},
+        }
     }
 }
 
@@ -158,7 +180,7 @@ pub trait IOAble {
 
     fn direction(&self) -> IODirection;
 
-    fn on_rw(&mut self, _: Result<IODirection, std::io::Error>) {}
+    fn on_rw(&mut self, _: Result<IODirection, std::io::Error>) -> bool;
     /* TODO: Handle Errors / hangup / etc */
 }
 
@@ -177,8 +199,9 @@ where IO: std::os::unix::io::AsRawFd,
     fn fd(&self) -> std::os::unix::io::RawFd { self.io.as_raw_fd() }
 
     fn direction(&self) -> IODirection { IODirection::Read }
-    fn on_rw(&mut self, r: Result<IODirection, std::io::Error>) {
-        (self.f)(&mut self.io, r)
+    fn on_rw(&mut self, r: Result<IODirection, std::io::Error>) -> bool {
+        (self.f)(&mut self.io, r);
+        true
     }
 }
 
@@ -210,4 +233,9 @@ pub fn terminate() {
     mainloop::terminate();
 }
 
+#[cfg(feature = "futures")]
+mod future_impl;
+
+#[cfg(feature = "futures")]
+pub use crate::future_impl::spawn;
 

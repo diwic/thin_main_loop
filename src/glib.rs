@@ -48,10 +48,10 @@ unsafe extern "C" fn glib_source_dispatch_cb(gs: *mut glib_sys::GSource, _: glib
         };
         let cond = glib_sys::g_source_query_unix_fd(gs, tag);
         let dir = gio_to_dir(cond);
-        if let CbKind::IO(io) = &mut (*x) {
-            io.on_rw(dir);
-        } else { unreachable!(); }
-        glib_sys::GTRUE
+
+        let r = (*x).call_mut(Some(dir));
+        if !r { (*Box::from_raw(x)).post_call_mut() };
+        if r { glib_sys::GTRUE } else { glib_sys::GFALSE }
    }, glib_sys::GFALSE)
 }
 
@@ -79,16 +79,9 @@ fn gio_to_dir(cond: glib_sys::GIOCondition) -> Result<IODirection, std::io::Erro
 unsafe extern fn glib_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
     ffi_cb_wrapper(|| {
         let x = x as *mut _ as *mut CbKind;
-        if let CbKind::Interval(f, _) = &mut (*x) { 
-            if f() { return glib_sys::GTRUE }
-        }
-        match *Box::from_raw(x) {
-            CbKind::After(f, _) => f(),
-            CbKind::Asap(f) => f(),
-            CbKind::Interval(_, _) => {},
-            CbKind::IO(_) => unimplemented!(),
-        }
-        glib_sys::GFALSE
+        let r = (*x).call_mut(None);
+        if !r { (*Box::from_raw(x)).post_call_mut() };
+        if r { glib_sys::GTRUE } else { glib_sys::GFALSE }
    }, glib_sys::GFALSE)
 }
 

@@ -55,15 +55,12 @@ impl<'a> Backend<'a> {
             item = self.recv.try_recv().ok().map(|f| Data { next: now, kind: CbKind::Asap(f) });
         }
 
-        if let Some(item) = item {
-            match item.kind {
-                CbKind::Asap(f) => f(),
-                CbKind::After(f, _) => f(),
-                CbKind::Interval(mut f, d) => if f() {
-                    self.push_internal(Data { /* id: item.id, */ next: item.next + d, kind: CbKind::Interval(f, d)});
-                },
-                CbKind::IO(_) => unreachable!(),
-            }
+        if let Some(mut item) = item {
+            if item.kind.call_mut(None) {
+                // Remain on the main loop
+                item.next += item.kind.duration().unwrap();
+                self.push_internal(item);
+            } else { item.kind.post_call_mut() }
             true
         } else if wait {
             if let Some(next) = next {
