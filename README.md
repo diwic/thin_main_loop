@@ -33,7 +33,7 @@ Maturity: Just up and running, not battle-tested. It's also a proof-of-concept, 
 
 Unsafe blocks: Only at the backend/FFI level. With the reference (Rust std) backend, there is no unsafe code at all.
 
-Rust version: Nightly, due to [Box FnOnce](https://github.com/rust-lang/rust/issues/28796), but hopefully that's on the road towards stabilization soon.
+Rust version: Latest stable should be fine.
 
 ## Supported platforms
 

@@ -5,6 +5,7 @@ use std::time::{Instant, Duration};
 use std::thread;
 use crate::mainloop::SendFnOnce;
 use std::sync::mpsc::{channel, Sender, Receiver};
+use boxfnonce::SendBoxFnOnce;
 
 struct Data<'a> {
 //    id: CbId,
@@ -14,11 +15,11 @@ struct Data<'a> {
 
 struct TSender {
     thread: thread::Thread,
-    sender: Sender<Box<FnOnce() + Send + 'static>>,
+    sender: Sender<SendBoxFnOnce<'static, ()>>,
 }
 
 impl SendFnOnce for TSender {
-    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
+    fn send(&self, f: SendBoxFnOnce<'static, ()>) -> Result<(), MainLoopError> {
         self.sender.send(f).map_err(|e| MainLoopError::Other(e.into()))?;
         self.thread.unpark();
         Ok(())
@@ -27,7 +28,7 @@ impl SendFnOnce for TSender {
 
 pub struct Backend<'a> {
     data: RefCell<VecDeque<Data<'a>>>,
-    recv: Receiver<Box<FnOnce() + Send + 'static>>,
+    recv: Receiver<SendBoxFnOnce<'static, ()>>,
 }
 
 impl<'a> Backend<'a> {
@@ -52,7 +53,10 @@ impl<'a> Backend<'a> {
         drop(d);
 
         if item.is_none() {
-            item = self.recv.try_recv().ok().map(|f| Data { next: now, kind: CbKind::Asap(f) });
+            if let Ok(cb) = self.recv.try_recv() {
+                cb.call();
+                return true;
+            }
         }
 
         if let Some(mut item) = item {

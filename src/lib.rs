@@ -2,12 +2,9 @@
 //!
 //! See README.md for an introduction.
 
-// Because Box<FnOnce>
-#![feature(unsized_locals)]
-
 #![cfg_attr(feature = "futures", feature(futures_api))]
 
-// Because this is just an unfinished prototype
+// Because not all backends use everything in the common code
 #![allow(unused_variables)]
 #![allow(dead_code)]
 
@@ -57,16 +54,18 @@ pub enum MainLoopError {
 #[derive(Clone, Debug)]
 pub struct CbId();
 
+use boxfnonce::BoxFnOnce;
+
 enum CbKind<'a> {
-    Asap(Box<dyn FnOnce() + 'a>),
-    After(Box<dyn FnOnce() + 'a>, Duration),
+    Asap(BoxFnOnce<'a, ()>),
+    After(BoxFnOnce<'a, ()>, Duration),
     Interval(Box<dyn FnMut() -> bool + 'a>, Duration),
     IO(Box<IOAble + 'a>),
 }
 
 impl<'a> CbKind<'a> {
-    pub fn asap<F: FnOnce() + 'a>(f: F) -> Self { CbKind::Asap(Box::new(f)) }
-    pub fn after<F: FnOnce() + 'a>(f: F, d: Duration) -> Self { CbKind::After(Box::new(f), d) }
+    pub fn asap<F: FnOnce() + 'a>(f: F) -> Self { CbKind::Asap(BoxFnOnce::from(f)) }
+    pub fn after<F: FnOnce() + 'a>(f: F, d: Duration) -> Self { CbKind::After(BoxFnOnce::from(f), d) }
     pub fn interval<F: FnMut() -> bool + 'a>(f: F, d: Duration) -> Self { CbKind::Interval(Box::new(f), d) }
     pub fn io<IO: IOAble + 'a>(io: IO) -> Self { CbKind::IO(Box::new(io)) }
 
@@ -99,8 +98,8 @@ impl<'a> CbKind<'a> {
 
     pub (crate) fn post_call_mut(self) {
         match self {
-            CbKind::After(f, _) => f(),
-            CbKind::Asap(f) => f(),
+            CbKind::After(f, _) => f.call(),
+            CbKind::Asap(f) => f.call(),
             CbKind::Interval(_, _) => {},
             CbKind::IO(_) => {},
         }
@@ -160,7 +159,7 @@ pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) -> Result<
 /// Runs a function on another thread. The target thread must run a main loop.
 #[cfg(not(feature = "web"))]
 pub fn call_thread<F: FnOnce() + Send + 'static>(thread: ThreadId, f: F) -> Result<(), MainLoopError> {
-    mainloop::call_thread_internal(thread, Box::new(f)) 
+    mainloop::call_thread_internal(thread, boxfnonce::SendBoxFnOnce::from(f)) 
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
