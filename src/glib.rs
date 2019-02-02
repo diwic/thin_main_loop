@@ -26,9 +26,20 @@ struct GSourceIOData {
 }
 
 struct CbData<'a> {
-    gsource_ptr: *mut glib_sys::GSource,
+    gsource: GSourceRef,
     cbid: CbId,
     kind: RefCell<Option<CbKind<'a>>>,
+}
+
+struct GSourceRef(NonNull<glib_sys::GSource>);
+
+impl Drop for GSourceRef {
+    fn drop(&mut self) {
+        unsafe {
+            glib_sys::g_source_destroy(self.0.as_mut());
+            glib_sys::g_source_unref(self.0.as_mut());
+        }
+    }
 }
 
 thread_local! {
@@ -150,7 +161,7 @@ impl SendFnOnce for Sender {
 impl Drop for Backend<'_> {
     fn drop(&mut self) {
         finished_tls.with(|f| { f.borrow_mut().clear(); }); 
-        // self.cb_map().map(|cbid| { self.cancel(cbid) }).count();
+        self.cb_map.borrow_mut().clear();
         unsafe { glib_sys::g_main_context_unref(self.ctx) }
     }
 }
@@ -173,7 +184,7 @@ impl<'a> Backend<'a> {
         let r = unsafe { glib_sys::g_main_context_iteration(self.ctx, w) != glib_sys::GFALSE };
         finished_tls.with(|f| {
             for cbid in f.borrow_mut().drain(..) {
-                self.cb_map.borrow_mut().remove(&cbid); // gsource has already been destroyed
+                self.cb_map.borrow_mut().remove(&cbid);
             };
         });
         r
@@ -181,12 +192,7 @@ impl<'a> Backend<'a> {
 
     pub (crate) fn cancel(&self, cbid: CbId) -> Option<CbKind<'a>> {
         self.cb_map.borrow_mut().remove(&cbid)
-        .and_then(|s| {
-            unsafe {
-                glib_sys::g_source_destroy(s.gsource_ptr);
-                s.kind.borrow_mut().take()
-            }
-        })
+        .and_then(|s| { s.kind.borrow_mut().take() })
     }
 
     pub (crate) fn push(&self, cbid: CbId, cb: CbKind<'a>) -> Result<(), MainLoopError> {
@@ -203,7 +209,7 @@ impl<'a> Backend<'a> {
         }};
 
         let boxed = Box::new(CbData {
-            gsource_ptr: s,
+            gsource: GSourceRef(NonNull::new(s).unwrap()),
             cbid: cbid,
             kind: RefCell::new(Some(cb)),
         });
@@ -226,7 +232,6 @@ impl<'a> Backend<'a> {
 
             glib_sys::g_source_set_priority(s, glib_sys::G_PRIORITY_DEFAULT);
             glib_sys::g_source_attach(s, self.ctx);
-            glib_sys::g_source_unref(s);
         }
         Ok(())
     }
