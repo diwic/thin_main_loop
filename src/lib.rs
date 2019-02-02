@@ -49,10 +49,8 @@ pub enum MainLoopError {
 }
 
 /// Callback Id, can be used to cancel callback before its run.
-///
-/// The cancel function is not implemented yet.
-#[derive(Clone, Debug)]
-pub struct CbId();
+#[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CbId(u64);
 
 use boxfnonce::BoxFnOnce;
 
@@ -154,7 +152,6 @@ pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) -> Result<
     let cb = CbKind::interval(f, d);
     call_internal(cb)
 }
-
 
 /// Runs a function on another thread. The target thread must run a main loop.
 #[cfg(not(feature = "web"))]

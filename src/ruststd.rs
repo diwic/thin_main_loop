@@ -8,7 +8,7 @@ use std::sync::mpsc::{channel, Sender, Receiver};
 use boxfnonce::SendBoxFnOnce;
 
 struct Data<'a> {
-//    id: CbId,
+    id: CbId,
     next: Instant,
     kind: CbKind<'a>,
 }
@@ -38,6 +38,7 @@ impl<'a> Backend<'a> {
         let sender = TSender { thread: thread::current(), sender: tx };
         Ok((be, Box::new(sender)))
     }
+
     pub fn run_one(&self, wait: bool) -> bool {
         let mut d = self.data.borrow_mut();
         let mut item = d.pop_front();
@@ -75,6 +76,7 @@ impl<'a> Backend<'a> {
             false
         } else { false }
     }
+
     fn push_internal(&self, item: Data<'a>) {
         let mut d = self.data.borrow_mut();
         let mut i = 0;
@@ -83,12 +85,21 @@ impl<'a> Backend<'a> {
         }
         d.insert(i, item);
     }
-    pub (crate) fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {
+
+    pub (crate) fn push(&self, id: CbId, cb: CbKind<'a>) -> Result<(), MainLoopError> {
         if let CbKind::IO(_) = &cb { return Err(MainLoopError::Unsupported) };
         self.push_internal(Data {
+            id: id,
             next: Instant::now() + cb.duration().unwrap_or(Duration::from_secs(0)),
             kind: cb
         });
-        Ok(CbId())
+        Ok(())
+    }
+
+    pub (crate) fn cancel(&self, id: CbId) -> Option<CbKind<'a>> {
+        let mut d = self.data.borrow_mut();
+        d.iter().position(|x| x.id == id)
+            .and_then(|idx| d.remove(idx))
+            .map(|data| data.kind)
     }
 }

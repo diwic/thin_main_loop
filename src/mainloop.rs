@@ -65,8 +65,6 @@ pub (crate) fn call_thread_internal(thread: ThreadId, f: SendBoxFnOnce<'static, 
     sender.send(f)
 }
 
-
-
 pub (crate) fn call_internal(cb: CbKind<'static>) -> Result<(), MainLoopError> {
     ml_tls.with(|m| {
         if !m.exists.get() { return Err(MainLoopError::NoMainLoop) }
@@ -83,22 +81,23 @@ pub (crate) fn terminate() {
 
 pub struct MainLoop<'a> {
     backend: Backend<'a>,
+    next_id: Cell<CbId>,
     _z: PhantomData<Rc<()>>, // !Send, !Sync
 }
 
 impl<'a> MainLoop<'a> {
     pub fn terminate(&self) { terminate() }
-    pub fn call_asap<F: FnOnce() + 'a>(&self, f: F) -> Result<CbId, MainLoopError> {
-        self.backend.push(CbKind::asap(f))
-    }
-    pub fn call_after<F: FnOnce() + 'a>(&self, d: Duration, f: F) -> Result<CbId, MainLoopError> { 
-        self.backend.push(CbKind::after(f, d))
-    }
-    pub fn call_interval<F: FnMut() -> bool + 'a>(&self, d: Duration, f: F)  -> Result<CbId, MainLoopError> {
-        self.backend.push(CbKind::interval(f, d))
-    }
-    pub fn call_io<IO: IOAble + 'a>(&self, io: IO)  -> Result<CbId, MainLoopError> {
-        self.backend.push(CbKind::io(io))
+    pub fn call_asap<F: FnOnce() + 'a>(&self, f: F) -> Result<CbId, MainLoopError> { self.push(CbKind::asap(f)) }
+    pub fn call_after<F: FnOnce() + 'a>(&self, d: Duration, f: F) -> Result<CbId, MainLoopError> { self.push(CbKind::after(f, d)) }
+    pub fn call_interval<F: FnMut() -> bool + 'a>(&self, d: Duration, f: F)  -> Result<CbId, MainLoopError> { self.push(CbKind::interval(f, d)) }
+    pub fn call_io<IO: IOAble + 'a>(&self, io: IO) -> Result<CbId, MainLoopError> { self.push(CbKind::io(io)) }
+    pub fn cancel(&self, cbid: CbId) -> bool { self.backend.cancel(cbid).is_some() }
+
+    fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {
+        let x = self.next_id.get();
+        self.next_id.set(CbId(x.0 + 1));
+        self.backend.push(x, cb)?;
+        Ok(x)
     }
 
     fn run_wrapper<F: FnOnce()>(&self, f: F) -> bool {
@@ -107,7 +106,7 @@ impl<'a> MainLoop<'a> {
             {
                 let mut q = m.in_queue.borrow_mut();
                 for cbk in q.drain(..) {
-                    self.backend.push(cbk).unwrap(); // TODO: Should probably be reported better
+                    self.push(cbk).unwrap(); // TODO: Should probably be reported better
                 }
             }
             if m.running.get() { panic!("Reentrant call to MainLoop") }
@@ -156,6 +155,7 @@ impl<'a> MainLoop<'a> {
 
             Ok(MainLoop { 
                 backend: be,
+                next_id: Cell::new(CbId(1)),
                 _z: PhantomData 
             })
         })
@@ -318,4 +318,15 @@ fn panic_inside_cb() {
     let zstr = z.downcast_ref::<&str>().unwrap();
     assert_eq!(*zstr, "Keep calm and carry on");
 }
+
+#[test]
+fn cancel_cb() {
+    let mut ml = MainLoop::new().unwrap();
+    let id = ml.call_asap(|| { panic!("This should have been cancelled!"); }).unwrap();
+    ml.call_after(Duration::from_millis(50), terminate).unwrap();
+    assert_eq!(ml.cancel(id), true);
+    assert_eq!(ml.cancel(id), false);
+    ml.run();
+}
+
 
