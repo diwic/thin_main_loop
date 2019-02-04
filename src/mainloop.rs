@@ -213,7 +213,11 @@ fn after() {
     ml.call_after(Duration::from_millis(300), || { x.set(true); terminate(); }).unwrap();
     ml.run();
     assert_eq!(x.get(), true);
-    assert!(Instant::now() - n >= Duration::from_millis(300)); 
+    let n2 = Instant::now();
+    // Windows seems to have an accuracy of 10 - 20 ms
+    if (n2 - n) < Duration::from_millis(280) {
+        panic!("Duration: {:?}", n2 - n);
+    }
 }
 
 #[test]

@@ -62,11 +62,13 @@ enum CbKind<'a> {
 }
 
 impl<'a> CbKind<'a> {
+    // Constructors
     pub fn asap<F: FnOnce() + 'a>(f: F) -> Self { CbKind::Asap(BoxFnOnce::from(f)) }
     pub fn after<F: FnOnce() + 'a>(f: F, d: Duration) -> Self { CbKind::After(BoxFnOnce::from(f), d) }
     pub fn interval<F: FnMut() -> bool + 'a>(f: F, d: Duration) -> Self { CbKind::Interval(Box::new(f), d) }
     pub fn io<IO: IOAble + 'a>(io: IO) -> Self { CbKind::IO(Box::new(io)) }
 
+    // Used to figure out which one it is
     pub fn duration(&self) -> Option<Duration> {
         match self {
             CbKind::IO(_) => None,
@@ -82,6 +84,12 @@ impl<'a> CbKind<'a> {
             if s >= m as u64 { return Err(MainLoopError::DurationTooLong) }
             Ok(Some((s as u32) * 1000 + d.subsec_millis()))
         } else { Ok(None) } 
+    }
+
+    #[cfg(windows)]
+    pub fn socket(&self) -> Option<(std::os::windows::io::RawSocket, IODirection)> {
+        if let CbKind::IO(io) = self { Some((io.socket(), io.direction()))}
+        else { None }
     }
 
     // If "false" is returned, please continue with making a call to post_call_mut.
