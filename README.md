@@ -2,7 +2,7 @@
 
 Because Rust's native GUI story starts with the main loop.
 
-(Btw, this library might be useful for many other use cases too.)
+(Although this library might be useful for many other use cases too.)
 
 ## Goals
 
@@ -126,20 +126,22 @@ Most of the APIs for native GUIs build on callbacks. When a button is clicked, y
 
 But that will be the task of another library. If we first make a thin cross platform library that binds to the native GUI apis, we can then experiment with making a more rustic API on top of that. And before we can make windows and buttons, we need to make a main loop which can process events from these objects. Hence this library.
 
-## Comparison with Mio
+# Other Rust main loops
 
-[Mio](https://crates.io/crates/mio) is also a cross platform main loop, but Mio has quite different design goals which ultimately makes it unsuitable for native GUI applications. Mio's primary use case is highly scalable servers, as such it binds to IOCP/epoll/etc which can take thousands of TCP sockets without problems, but does not integrate well with native APIs for GUI libraries: IOCP threads cannot process Windows messages, and so on. This library binds to PeekMessage/GMainLoop/etc, which makes it suitable for GUI applications with native look and feel.
+## Mio
+
+[Mio](https://crates.io/crates/mio) is also a cross platform main loop, but Mio has quite different design goals which ultimately makes it unsuitable for native GUI applications. Mio's primary use case is highly scalable servers, as such it binds to IOCP/epoll/etc which can take thousands of TCP sockets without problems, but does not integrate well with native APIs for GUI libraries: IOCP threads cannot process Windows messages, and so on. This library binds to [PeekMessage](https://docs.microsoft.com/en-us/windows/desktop/api/winuser/nf-winuser-peekmessagew)/[GMainLoop](https://developer.gnome.org/glib/stable/glib-The-Main-Event-Loop.html)/etc, which makes it suitable for GUI applications with native look and feel.
 
 Also, Mio is better at avoiding allocations, at the cost of being less ergonomic.
 
-## Comparison with Calloop
+## Calloop
 
 [Calloop](https://crates.io/crates/calloop) is an event loop with very similar callback-style API to this crate. However, it is built on top of Mio, and so it binds to unsuitable native APIs for native GUI applications.
 
-## Comparison with Winit
+## Winit
 
 [Winit](https://crates.io/crates/winit) includes an event loop, and the crate has the purpose of creating windows. The event loop is not callback based, but enum based (every Event is an enum, which you need to dispatch yourself). Winit's focus is more on getting a window and custom drawing (through OpenGL, Vulcan etc) rather than drawing native GUI widgets, but nonetheless has some common ground with this crate.
 
-## Comparison with IUI / libui
+## IUI / libui
 
 [IUI](https://crates.io/crates/iui) is a Rust binding to libui, which is a cross-platform GUI library written in C. Its event loop offers callbacks, much like this library. In comparison, this library is pure Rust only and binds to native libraries directly, skipping one abstraction level and is therefore easier to build. I also hope that with time this library could offer better Rust integration as well as some more flexibility, being usable for more than pure GUI applications, even if that is the current primary use case.
