@@ -209,8 +209,9 @@ where IO: std::os::windows::io::AsRawSocket,
     fn socket(&self) -> std::os::windows::io::RawSocket { self.io.as_raw_socket() }
 
     fn direction(&self) -> IODirection { IODirection::Read }
-    fn on_rw(&mut self, r: Result<IODirection, std::io::Error>) {
-        (self.f)(&mut self.io, r)
+    fn on_rw(&mut self, r: Result<IODirection, std::io::Error>) -> bool {
+        (self.f)(&mut self.io, r);
+        true
     }
 }
 

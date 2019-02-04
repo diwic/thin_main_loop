@@ -6,6 +6,7 @@ use std::{mem, ptr};
 use std::sync::{Once, Arc};
 use std::collections::HashMap;
 use std::cell::RefCell;
+use boxfnonce::SendBoxFnOnce;
 
 use winapi::shared::windef::HWND;
 use winapi::um::winuser;
@@ -28,8 +29,8 @@ pub struct Backend<'a> {
 }
 
 impl SendFnOnce for Arc<OwnedHwnd> {
-    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
-        let cb = CbKind::Asap(f);
+    fn send(&self, f: SendBoxFnOnce<'static, ()>) -> Result<(), MainLoopError> {
+        let cb = CbKind::Asap(f.into());
         let x = Box::into_raw(Box::new(cb));
         unsafe {
             winuser::PostMessageA(self.0, WM_CALL_ASAP, x as usize, 0);
@@ -83,20 +84,13 @@ unsafe extern "system" fn wnd_callback(wnd: HWND, msg: u32, wparam: usize, lpara
         }
         else if msg == WM_CALL_ASAP || msg == winuser::WM_TIMER {
             let x = wparam as *mut CbKind;
-            if let CbKind::Interval(f, _) = &mut (*x) { 
-                if f() { return 0 };
+            if (*x).call_mut(None) { return 0; }
+            // Final call...
+            let x = Box::from_raw(x);
+            if x.duration().is_some() {
+                winuser::KillTimer(wnd, wparam);
             }
-            match *Box::from_raw(x) {
-                CbKind::After(f, _) => {
-                    winuser::KillTimer(wnd, wparam);
-                    f()
-                },
-                CbKind::Asap(f) => f(),
-                CbKind::Interval(_, _) => {
-                    winuser::KillTimer(wnd, wparam);
-                },
-                CbKind::IO(_) => unreachable!(),
-            }
+            x.post_call_mut(); 
             0
         } else {
             winuser::DefWindowProcA(wnd, msg, wparam, lparam)
@@ -142,7 +136,8 @@ impl<'a> Backend<'a> {
             } else { false }
         }
     }
-    pub (crate) fn push(&self, cb: CbKind<'a>) -> Result<CbId, MainLoopError> {
+    pub (crate) fn cancel(&self, cbid: CbId) -> Option<CbKind<'a>> { unimplemented!() }
+    pub (crate) fn push(&self, cbid: CbId, cb: CbKind<'a>) -> Result<(), MainLoopError> {
         if let CbKind::IO(io) = cb {
             let events = match io.direction() {
                 IODirection::None => 0,
@@ -158,7 +153,7 @@ impl<'a> Backend<'a> {
                 let x: *mut (dyn IOAble + 'static) = unsafe { mem::transmute(x) };
                 s.borrow_mut().insert(sock as usize, x);
             });
-            return Ok(CbId());
+            return Ok(());
         }
         let d = cb.duration_millis()?;
         let x = Box::into_raw(Box::new(cb));
@@ -170,6 +165,6 @@ impl<'a> Backend<'a> {
                 winuser::SetTimer(self.wnd.0, x as usize, d, None);
             }
         };
-        Ok(CbId())
+        Ok(())
     }
 }
