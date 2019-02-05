@@ -87,10 +87,7 @@ impl<'a> Backend<'a> {
     }
 
     pub (crate) fn push(&self, id: CbId, cb: CbKind<'a>) -> Result<(), MainLoopError> {
-        #[cfg(unix)]
-        { if cb.fd().is_some() { return Err(MainLoopError::Unsupported) }; }
-        #[cfg(windows)]
-        { if cb.socket().is_some() { return Err(MainLoopError::Unsupported) }; }
+        if cb.handle().is_some() { return Err(MainLoopError::Unsupported) };
 
         self.push_internal(Data {
             id: id,

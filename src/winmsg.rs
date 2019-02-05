@@ -43,8 +43,8 @@ impl<'a> BeInternal<'a> {
     }
 
     fn remove(&self, cbid: CbId, kind: &CbKind<'a>) {
-        if let Some((sock, _)) = kind.socket() {
-            let sock = sock as usize;
+        if let Some((sock, _)) = kind.handle() {
+            let sock = sock.0 as usize;
             unsafe { winsock2::WSAAsyncSelect(sock, self.wnd.0, WM_SOCKET, 0); }
             self.socket_map.borrow_mut().remove(&sock);
         }
@@ -196,14 +196,14 @@ impl<'a> Backend<'a> {
         assert!(cbid.0 <= std::usize::MAX as u64);
         let cbu = cbid.0 as usize;
         let wnd = self.0.wnd.0;
-        if let Some((socket, direction)) = cb.socket() {
+        if let Some((socket, direction)) = cb.handle() {
             let events = match direction {
                 IODirection::None => 0,
                 IODirection::Read => winsock2::FD_READ,
                 IODirection::Write => winsock2::FD_WRITE,
                 IODirection::Both => winsock2::FD_READ | winsock2::FD_WRITE,
             } + winsock2::FD_CLOSE;
-            let sock = socket as usize;
+            let sock = socket.0 as usize;
             unsafe { winsock2::WSAAsyncSelect(sock, wnd, WM_SOCKET, events) };
             self.0.socket_map.borrow_mut().insert(sock, cbid);
         } else if let Some(d) = cb.duration_millis()? {

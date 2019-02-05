@@ -196,9 +196,9 @@ impl<'a> Backend<'a> {
     pub (crate) fn push(&self, cbid: CbId, cb: CbKind<'a>) -> Result<(), MainLoopError> {
         let mut tag = None;
         let s = unsafe { 
-            if let Some((fd, direction)) = cb.fd() {
+            if let Some((handle, direction)) = cb.handle() {
                 let s = glib_sys::g_source_new(&G_SOURCE_FUNCS as *const _ as *mut _, mem::size_of::<GSourceIOData>() as u32);
-                tag = Some(glib_sys::g_source_add_unix_fd(s, fd, dir_to_gio(direction)));
+                tag = Some(glib_sys::g_source_add_unix_fd(s, handle.0, dir_to_gio(direction)));
                 s
             } else if let Some(s) = cb.duration_millis()? {
                 glib_sys::g_timeout_source_new(s)
