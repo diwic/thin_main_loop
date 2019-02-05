@@ -92,6 +92,12 @@ impl<'a> CbKind<'a> {
         else { None }
     }
 
+    #[cfg(unix)]
+    pub fn fd(&self) -> Option<(std::os::unix::io::RawFd, IODirection)> {
+        if let CbKind::IO(io) = self { Some((io.fd(), io.direction()))}
+        else { None }
+    }
+
     // If "false" is returned, please continue with making a call to post_call_mut.
     pub (crate) fn call_mut(&mut self, io_dir: Option<Result<IODirection, std::io::Error>>) -> bool {
         match self {

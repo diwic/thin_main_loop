@@ -120,8 +120,6 @@ fn gio_to_dir(cond: glib_sys::GIOCondition) -> Result<IODirection, std::io::Erro
 unsafe extern fn glib_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
     ffi_cb_wrapper(|| {
         let x = x as *const _ as *mut CbData;
-        // println!("cb: {:?}", x);
-        // println!("cbid: {:?}", (*x).cbid);
         if cbdata_call(&mut (*x), None) { glib_sys::GTRUE } else { glib_sys::GFALSE }
    }, glib_sys::GFALSE)
 }
@@ -197,16 +195,17 @@ impl<'a> Backend<'a> {
 
     pub (crate) fn push(&self, cbid: CbId, cb: CbKind<'a>) -> Result<(), MainLoopError> {
         let mut tag = None;
-        let s = unsafe { match &cb {
-            CbKind::IO(io) => {
+        let s = unsafe { 
+            if let Some((fd, direction)) = cb.fd() {
                 let s = glib_sys::g_source_new(&G_SOURCE_FUNCS as *const _ as *mut _, mem::size_of::<GSourceIOData>() as u32);
-                tag = Some(glib_sys::g_source_add_unix_fd(s, io.fd(), dir_to_gio(io.direction())));
+                tag = Some(glib_sys::g_source_add_unix_fd(s, fd, dir_to_gio(direction)));
                 s
-            },
-            CbKind::Asap(_) => glib_sys::g_idle_source_new(),
-            CbKind::After(_,_) | CbKind::Interval(_,_) => 
-                glib_sys::g_timeout_source_new(cb.duration_millis()?.unwrap()),
-        }};
+            } else if let Some(s) = cb.duration_millis()? {
+                glib_sys::g_timeout_source_new(s)
+            } else {
+                glib_sys::g_idle_source_new()
+            }
+        };
 
         let boxed = Box::new(CbData {
             gsource: GSourceRef(NonNull::new(s).unwrap()),
@@ -222,12 +221,7 @@ impl<'a> Backend<'a> {
                 ss.cb_data = Some(x.cast());
                 ss.tag = tag;
             } else {
-                // let x: *mut Rc<CbData> = &mut rc;
-                // println!("push: {:?}, {:?}", x, rc.cbid);
-                // println!("cbid: {:?}", (*x).cbid);
-         
                 glib_sys::g_source_set_callback(s, Some(glib_cb), x.as_ptr() as *mut _ as *mut _, None);
-                // mem::forget(rc);
             }
 
             glib_sys::g_source_set_priority(s, glib_sys::G_PRIORITY_DEFAULT);

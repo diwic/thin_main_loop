@@ -87,7 +87,11 @@ impl<'a> Backend<'a> {
     }
 
     pub (crate) fn push(&self, id: CbId, cb: CbKind<'a>) -> Result<(), MainLoopError> {
-        if let CbKind::IO(_) = &cb { return Err(MainLoopError::Unsupported) };
+        #[cfg(unix)]
+        { if cb.fd().is_some() { return Err(MainLoopError::Unsupported) }; }
+        #[cfg(windows)]
+        { if cb.socket().is_some() { return Err(MainLoopError::Unsupported) }; }
+
         self.push_internal(Data {
             id: id,
             next: Instant::now() + cb.duration().unwrap_or(Duration::from_secs(0)),
