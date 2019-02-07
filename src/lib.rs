@@ -6,6 +6,7 @@
 
 // Because not all backends use everything in the common code
 #![allow(unused_variables)]
+// #![allow(unused_imports)]
 #![allow(dead_code)]
 
 
@@ -30,13 +31,10 @@ mod mainloop;
 #[cfg(not(feature = "web"))]
 pub use crate::mainloop::MainLoop;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::thread::ThreadId;
 
-// TODO: Cancel callbacks before they are run
 // TODO: Futures integration
-
-// pub struct CbId(u32);
 
 /// Possible error codes returned from the main loop API.
 #[derive(Debug)]
@@ -69,6 +67,7 @@ pub struct CbHandle(pub std::os::unix::io::RawFd);
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
 pub struct CbHandle(pub i32); 
 
+/*
 struct CbFuture<'a> {
     #[cfg(feature = "futures")]
     future: Box<futures::Future<Output=()> + Unpin + 'a>,
@@ -77,13 +76,14 @@ struct CbFuture<'a> {
     instant: Option<Instant>,
     handle: Option<(CbHandle, IODirection)>,
 }
+*/
 
 enum CbKind<'a> {
     Asap(BoxFnOnce<'a, ()>),
     After(BoxFnOnce<'a, ()>, Duration),
     Interval(Box<dyn FnMut() -> bool + 'a>, Duration),
     IO(Box<IOAble + 'a>),
-    Future(CbFuture<'a>),
+//    Future(CbFuture<'a>),
 }
 
 impl<'a> CbKind<'a> {
@@ -100,7 +100,7 @@ impl<'a> CbKind<'a> {
             CbKind::Asap(_) => None,
             CbKind::After(_, d) => Some(*d),
             CbKind::Interval(_, d) => Some(*d),
-            CbKind::Future(f) => f.instant.map(|x| x - Instant::now()),
+//            CbKind::Future(f) => f.instant.map(|x| x - Instant::now()),
         }
     }
     pub fn duration_millis(&self) -> Result<Option<u32>, MainLoopError> {
@@ -118,7 +118,7 @@ impl<'a> CbKind<'a> {
             CbKind::Asap(_) => None,
             CbKind::After(_, _) => None,
             CbKind::Interval(_, _) => None,
-            CbKind::Future(f) => f.handle,
+//            CbKind::Future(f) => f.handle,
         }
     }
 
@@ -129,14 +129,14 @@ impl<'a> CbKind<'a> {
             CbKind::IO(io) => io.on_rw(io_dir.unwrap()),
             CbKind::After(_, _) => false,
             CbKind::Asap(_) => false,
-            CbKind::Future(f) => {
+/*            CbKind::Future(f) => {
                 #[cfg(feature = "futures")]
                 {
                     future_impl::do_poll(f)
                 }
                 #[cfg(not(feature = "futures"))]
                 unreachable!()
-            }
+            } */      
         }
     }
 
@@ -146,7 +146,7 @@ impl<'a> CbKind<'a> {
             CbKind::Asap(f) => f.call(),
             CbKind::Interval(_, _) => {},
             CbKind::IO(_) => {},
-            CbKind::Future(_) => {},
+//            CbKind::Future(_) => {},
         }
     }
 }
@@ -275,8 +275,5 @@ pub fn terminate() {
 }
 
 #[cfg(feature = "futures")]
-mod future_impl;
-
-#[cfg(feature = "futures")]
-pub use crate::future_impl::spawn;
+pub mod future;
 

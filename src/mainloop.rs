@@ -85,6 +85,7 @@ pub struct MainLoop<'a> {
     _z: PhantomData<Rc<()>>, // !Send, !Sync
 }
 
+ 
 impl<'a> MainLoop<'a> {
     pub fn terminate(&self) { terminate() }
     pub fn call_asap<F: FnOnce() + 'a>(&self, f: F) -> Result<CbId, MainLoopError> { self.push(CbKind::asap(f)) }
@@ -127,11 +128,13 @@ impl<'a> MainLoop<'a> {
         }) {}
     }
 
-    /// Runs the main loop once, without waiting.
-    pub fn run_one(&mut self) {
+    /// Runs the main loop once
+    ///
+    /// Returns false if the mainloop was terminated.
+    pub fn run_one(&mut self, allow_wait: bool) -> bool {
         self.run_wrapper(|| {
-            self.backend.run_one(false);
-        });
+            self.backend.run_one(allow_wait);
+        })
     }
 
     /// Creates a new main loop
