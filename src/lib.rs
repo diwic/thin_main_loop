@@ -65,7 +65,7 @@ pub struct CbHandle(pub std::os::unix::io::RawFd);
 /// Abstraction around unix fds and windows sockets.
 #[cfg(not(any(windows, unix)))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
-pub struct CbHandle(pub i32); 
+pub struct CbHandle(pub i32);
 
 /*
 struct CbFuture<'a> {

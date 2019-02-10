@@ -1,13 +1,15 @@
 
 use futures::future::{Future};
 use futures::task;
-// use futures::stream::Stream;
+use futures::stream::Stream;
 use futures::task::{Poll, LocalWaker, Wake};
 use std::pin::Pin;
 use std::mem;
 use std::sync::{Arc, Mutex};
-use crate::{MainLoopError, MainLoop};
-use std::collections::HashMap;
+use crate::{MainLoopError, MainLoop, IODirection, CbHandle, IOAble};
+use std::collections::{HashMap, VecDeque};
+use std::rc::Rc;
+use std::cell::{Cell, RefCell};
 
 use std::time::Instant;
 
@@ -32,18 +34,74 @@ impl Future for Delay {
 pub fn delay(i: Instant) -> Delay {
     Delay(i)
 }
-/*
-impl<'a, IO: IOAble + 'a> Stream for Io<IO> {
-    type Item = Result<IODirection, MainLoopError>;
-    fn poll_next(self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Option<Self::Item>> {
+
+struct IoInternal {
+    cb_handle: CbHandle,
+    direction: IODirection,
+    queue: RefCell<VecDeque<Result<IODirection, std::io::Error>>>,
+    alive: Cell<bool>,
+    started: Cell<bool>,
+    waker: RefCell<Option<LocalWaker>>,
+}
+
+pub struct Io(Rc<IoInternal>);
+
+impl IOAble for Io {
+    fn handle(&self) -> CbHandle { self.0.cb_handle }
+    fn direction(&self) -> IODirection { self.0.direction }
+    fn on_rw(&mut self, r: Result<IODirection, std::io::Error>) -> bool {
+        self.0.queue.borrow_mut().push_back(r);
+        let w = self.0.waker.borrow();
+        if let Some(waker) = &*w { waker.wake() };
+        self.0.alive.get()
     }
 }
 
-pub fn io<IO>(io: IO) -> Io<IO> { Io(io) }
+impl Stream for Io {
+    type Item = Result<IODirection, MainLoopError>;
+    fn poll_next(self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Option<Self::Item>> {
+        let s: &IoInternal = &(*self).0;
+        if !s.alive.get() { return Poll::Ready(None); }
 
+        if !s.started.get() {
+            // Submit to the reactor
+            let c: &Rc<IoInternal> = &(*self).0;
+            let c = Io(c.clone());
+            if let Err(e) = crate::call_io(c) {
+                s.alive.set(false);
+                return Poll::Ready(Some(Err(e)));
+            }
+            s.started.set(true);
+        }
 
-pub struct Io<IO>(IO, Arc<Mutex<Vec<Result<IODirection, std::io::Error>>>>);
-*/
+        let q = s.queue.borrow_mut().pop_front();
+        if let Some(item) = q {
+            let item = item.map_err(|e| MainLoopError::Other(Box::new(e)));
+            Poll::Ready(Some(item))
+        } else {
+            *s.waker.borrow_mut() = Some(lw.clone());
+            Poll::Pending
+        }
+    }
+}
+
+impl Drop for Io {
+    fn drop(&mut self) {
+        let s: &IoInternal = &(*self).0;
+        s.alive.set(false);
+    }
+}
+
+pub fn io(handle: CbHandle, dir: IODirection) -> Io {
+    Io(Rc::new(IoInternal {
+        cb_handle: handle,
+        direction: dir,
+        alive: Cell::new(true),
+        started: Cell::new(false),
+        queue: Default::default(),
+        waker: Default::default(),
+    }))
+}
 
 // And the executor stuff 
 
