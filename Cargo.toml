@@ -14,7 +14,7 @@ categories = ["api-bindings", "asynchronous", "os::unix-apis", "os::windows-apis
 [dependencies]
 wasm-bindgen = { version = "0.2.29", optional = true }
 js-sys = { version = "0.3.6", optional = true }
-lazy_static = "1.2"
+lazy_static = "1.1"
 futures-preview = { version = "0.3.0-alpha.12", optional = true }
 boxfnonce = "0.1.1"
 

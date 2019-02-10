@@ -43,7 +43,7 @@ impl Drop for GSourceRef {
 }
 
 thread_local! {
-    static finished_tls: RefCell<Vec<CbId>> = Default::default();
+    static FINISHED_TLS: RefCell<Vec<CbId>> = Default::default();
 }
 
 pub struct Backend<'a> {
@@ -55,7 +55,7 @@ unsafe extern "C" fn glib_source_finalize_cb(gs: *mut glib_sys::GSource) {
     ffi_cb_wrapper(|| {
         let ss: &mut GSourceIOData = &mut *(gs as *mut _);
         if let Some(cb_data) = &ss.cb_data {
-            finished_tls.with(|f| { f.borrow_mut().push(cb_data.as_ref().cbid); });
+            FINISHED_TLS.with(|f| { f.borrow_mut().push(cb_data.as_ref().cbid); });
             ss.cb_data.take();
         }
     }, ())
@@ -93,7 +93,7 @@ fn cbdata_call(cb_data: &CbData, dir: Option<Result<IODirection, std::io::Error>
         if kind.call_mut(dir) { return true; }
     };
     cb_data.kind.borrow_mut().take().map(|kind| { kind.post_call_mut(); });
-    finished_tls.with(|f| { f.borrow_mut().push(cb_data.cbid); });
+    FINISHED_TLS.with(|f| { f.borrow_mut().push(cb_data.cbid); });
     false
 }
 
@@ -158,7 +158,7 @@ impl SendFnOnce for Sender {
 
 impl Drop for Backend<'_> {
     fn drop(&mut self) {
-        finished_tls.with(|f| { f.borrow_mut().clear(); }); 
+        FINISHED_TLS.with(|f| { f.borrow_mut().clear(); }); 
         self.cb_map.borrow_mut().clear();
         unsafe { glib_sys::g_main_context_unref(self.ctx) }
     }
@@ -170,7 +170,7 @@ impl<'a> Backend<'a> {
             ctx: unsafe { glib_sys::g_main_context_new() }, 
             cb_map: Default::default(),
         };
-        finished_tls.with(|stls| {
+        FINISHED_TLS.with(|stls| {
             *stls.borrow_mut() = Default::default();
         });
         let sender = Sender(unsafe { glib_sys::g_main_context_ref(be.ctx) }); 
@@ -180,7 +180,7 @@ impl<'a> Backend<'a> {
     pub fn run_one(&self, wait: bool) -> bool {
         let w = if wait { glib_sys::GTRUE } else { glib_sys::GFALSE };
         let r = unsafe { glib_sys::g_main_context_iteration(self.ctx, w) != glib_sys::GFALSE };
-        finished_tls.with(|f| {
+        FINISHED_TLS.with(|f| {
             for cbid in f.borrow_mut().drain(..) {
                 self.cb_map.borrow_mut().remove(&cbid);
             };

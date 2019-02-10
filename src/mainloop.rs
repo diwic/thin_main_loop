@@ -32,14 +32,14 @@ struct MlTls {
 // Panic handling
 
 thread_local! {
-    static ml_tls: MlTls = Default::default();
+    static ML_TLS: MlTls = Default::default();
 }
 
 pub (crate) fn ffi_cb_wrapper<R, F: FnOnce() -> R>(f: F, on_panic: R) -> R {
     match panic::catch_unwind(panic::AssertUnwindSafe(|| { f() })) {
         Ok(x) => x,
         Err(e) => {
-            ml_tls.with(|m| {
+            ML_TLS.with(|m| {
                 // We should never get a double panic, but if we do, let's ignore the info from the second one.
                 // Probably the info from the first one is the more helpful.
                 let _ = m.current_panic.try_borrow_mut().map(|mut cp| { *cp = Some(e); });
@@ -66,7 +66,7 @@ pub (crate) fn call_thread_internal(thread: ThreadId, f: SendBoxFnOnce<'static, 
 }
 
 pub (crate) fn call_internal(cb: CbKind<'static>) -> Result<(), MainLoopError> {
-    ml_tls.with(|m| {
+    ML_TLS.with(|m| {
         if !m.exists.get() { return Err(MainLoopError::NoMainLoop) }
         m.in_queue.borrow_mut().push(cb);
         Ok(())
@@ -74,7 +74,7 @@ pub (crate) fn call_internal(cb: CbKind<'static>) -> Result<(), MainLoopError> {
 }
 
 pub (crate) fn terminate() {
-    ml_tls.with(|m| {
+    ML_TLS.with(|m| {
         m.terminated.set(true);
     });
 }
@@ -102,7 +102,7 @@ impl<'a> MainLoop<'a> {
     }
 
     fn run_wrapper<F: FnOnce()>(&self, f: F) -> bool {
-        ml_tls.with(|m| {
+        ML_TLS.with(|m| {
             if m.terminated.get() { return false; }
             {
                 let mut q = m.in_queue.borrow_mut();
@@ -139,7 +139,7 @@ impl<'a> MainLoop<'a> {
 
     /// Creates a new main loop
     pub fn new() -> Result<Self, MainLoopError> {
-        ml_tls.with(|m| {
+        ML_TLS.with(|m| {
             if m.exists.get() { return Err(MainLoopError::TooManyMainLoops) };
 
             let (be, sender) = Backend::new()?;
@@ -167,7 +167,7 @@ impl<'a> MainLoop<'a> {
 
 impl Drop for MainLoop<'_> {
     fn drop(&mut self) {
-        ml_tls.with(|m| { m.exists.set(false); });
+        ML_TLS.with(|m| { m.exists.set(false); });
         let thread_id = std::thread::current().id();
         THREAD_SENDER.lock().unwrap().remove(&thread_id);
     }
