@@ -1,3 +1,4 @@
+//! 0.3 Futures support (requires the "futures" feature).
 
 use futures::future::{Future};
 use futures::task;
@@ -13,6 +14,7 @@ use std::cell::{Cell, RefCell};
 
 use std::time::Instant;
 
+/// Waits until a specific instant.
 pub struct Delay(Instant);
 
 impl Future for Delay {
@@ -31,6 +33,7 @@ impl Future for Delay {
     }
 }
 
+/// Waits until a specific instant.
 pub fn delay(i: Instant) -> Delay {
     Delay(i)
 }
@@ -44,6 +47,8 @@ struct IoInternal {
     waker: RefCell<Option<Waker>>,
 }
 
+/// Io implements "futures::Stream", so it will output an item whenever 
+/// the handle is ready for read / write.
 pub struct Io(Rc<IoInternal>);
 
 impl IOAble for Io {
@@ -92,6 +97,7 @@ impl Drop for Io {
     }
 }
 
+/// Creates a new Io, which outputs an item whenever the handle is ready for reading / writing. 
 pub fn io(handle: CbHandle, dir: IODirection) -> Io {
     Io(Rc::new(IoInternal {
         cb_handle: handle,
@@ -118,6 +124,11 @@ impl ArcWake for Task {
     }
 }
 
+/// A futures executor that supports spawning futures. 
+///
+/// If you use "Delay" or "Io", this is the executor you need to
+/// spawn it on.
+/// It contains a MainLoop inside, so you can spawn 'static callbacks too. 
 pub struct Executor<'a> {
     ml: MainLoop<'a>,
     tasks: HashMap<u64, BoxFuture<'a>>,

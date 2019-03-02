@@ -1,6 +1,6 @@
 //! A thin main loop library for desktop applications and async I/O.
 //!
-//! See README.md for an introduction.
+//! See README.md for an introduction and some examples.
 
 #![cfg_attr(feature = "futures", feature(futures_api, async_await, await_macro))]
 
@@ -206,6 +206,7 @@ pub fn call_thread<F: FnOnce() + Send + 'static>(thread: ThreadId, f: F) -> Resu
     mainloop::call_thread_internal(thread, boxfnonce::SendBoxFnOnce::from(f)) 
 }
 
+/// Selects whether to wait for a CbHandle to be available for reading, writing, or both.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum IODirection {
     None,
