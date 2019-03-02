@@ -22,12 +22,17 @@ Because Rust's native GUI story starts with the main loop.
 
 ## Status
 
-The library has functions for running a callback:
+The library has functions for running code:
  * ASAP (as soon as the main loop gets a chance to run something),
  * after a timeout,
  * at regular intervals,
  * ASAP, but in another thread,
  * when an I/O object is ready of reading or writing.
+
+and it can do so by:
+ * Scheduling a callback
+ * Scheduling a 0.3 future (requires nightly Rust and `--features "futures"`)
+ * Scheduling an async fn (requires nightly Rust and `--features "futures"`)
 
 Maturity: Just up and running, not battle-tested. It's also a proof-of-concept, to spawn discussion and interest.
 
@@ -92,6 +97,8 @@ ml.run();
 
 ## I/O
 
+Requires features "glib" or "win32".
+
 The following example connects to a TCP server and prints everything coming in.
 
 ```rust
@@ -114,8 +121,29 @@ let wr = tml::IOReader { io: io, f: move |io: &mut TcpStream, x| {
 let mut ml = MainLoop::new()?;
 ml.call_io(wr)?;
 ml.run();
+```
 
+## Async fn
 
+Requires features "futures" and nightly Rust.
+
+The following code waits one second, then terminates the program.
+
+```rust
+#![feature(async_await, await_macro))]
+// extern crate thin_main_loop as tml;
+
+use std::time::{Instant, Duration};
+
+async fn wait_until(n: Instant) {
+    await!(delay(n)).unwrap();
+    tml::terminate();
+}
+
+let mut x = tml::futures::Executor::new().unwrap();
+let n = Instant::now() + Duration::from_millis(1000);
+x.spawn(wait_until(n));
+x.run();
 ```
 
 # Background

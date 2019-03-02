@@ -178,3 +178,19 @@ fn delay_test() {
     x.run();
     assert!(Instant::now() >= n);
 }
+
+#[test]
+fn async_fn_test() {
+    use std::time::Duration;
+
+    async fn foo(n: Instant) {
+        await!(delay(n)).unwrap();
+        crate::terminate();
+    }
+
+    let mut x = Executor::new().unwrap();
+    let n = Instant::now() + Duration::from_millis(200);
+    x.spawn(foo(n));
+    x.run();
+    assert!(Instant::now() >= n);
+}

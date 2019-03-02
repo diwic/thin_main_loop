@@ -2,7 +2,7 @@
 //!
 //! See README.md for an introduction.
 
-#![cfg_attr(feature = "futures", feature(futures_api))]
+#![cfg_attr(feature = "futures", feature(futures_api, async_await, await_macro))]
 
 // Because not all backends use everything in the common code
 #![allow(unused_variables)]
