@@ -2,7 +2,7 @@
 use futures::future::{Future};
 use futures::task;
 use futures::stream::Stream;
-use futures::task::{Poll, LocalWaker, Wake};
+use futures::task::{Poll, Waker, ArcWake};
 use std::pin::Pin;
 use std::mem;
 use std::sync::{Arc, Mutex};
@@ -17,7 +17,7 @@ pub struct Delay(Instant);
 
 impl Future for Delay {
     type Output = Result<(), MainLoopError>;
-    fn poll(self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, lw: &Waker) -> Poll<Self::Output> {
         let n = Instant::now();
         // println!("Polled at {:?}", n);
         if self.0 <= n { Poll::Ready(Ok(())) }
@@ -41,7 +41,7 @@ struct IoInternal {
     queue: RefCell<VecDeque<Result<IODirection, std::io::Error>>>,
     alive: Cell<bool>,
     started: Cell<bool>,
-    waker: RefCell<Option<LocalWaker>>,
+    waker: RefCell<Option<Waker>>,
 }
 
 pub struct Io(Rc<IoInternal>);
@@ -59,7 +59,7 @@ impl IOAble for Io {
 
 impl Stream for Io {
     type Item = Result<IODirection, MainLoopError>;
-    fn poll_next(self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, lw: &Waker) -> Poll<Option<Self::Item>> {
         let s: &IoInternal = &(*self).0;
         if !s.alive.get() { return Poll::Ready(None); }
 
@@ -111,7 +111,7 @@ type RunQueue = Arc<Mutex<Vec<u64>>>;
 
 struct Task(u64, RunQueue);
 
-impl Wake for Task {
+impl ArcWake for Task {
     fn wake(x: &Arc<Self>) {
         x.1.lock().unwrap().push(x.0);
         // println!("Waking up");
@@ -146,7 +146,8 @@ impl<'a> Executor<'a> {
                     if let Some(f) = f {
                         let pinf = f.as_mut();
                         let t = Task(id, self.run_queue.clone());
-                        let waker = task::local_waker_from_nonlocal(Arc::new(t));
+                        let t = Arc::new(t);
+                        let waker = task::waker_ref(&t);
                         pinf.poll(&waker) != futures::Poll::Pending
                     } else { false }
                 };
