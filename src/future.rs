@@ -142,30 +142,49 @@ impl<'a> Executor<'a> {
     }
 
     pub fn run(&mut self) {
-        loop {
-            let run_queue: Vec<_> = {
-                let mut r = self.run_queue.lock().unwrap();
-                mem::replace(&mut *r, vec!())
+        while self.run_one(true) {}
+    }
+
+    /// Processes futures ready to make progress.
+    ///
+    /// If no futures are ready to progress, may block in case allow_wait is true.
+    /// Returns false if the mainloop was terminated.
+    pub fn run_one(&mut self, allow_wait: bool) -> bool {
+        let run_queue: Vec<_> = {
+            let mut r = self.run_queue.lock().unwrap();
+            mem::replace(&mut *r, vec!())
+        };
+        if run_queue.len() == 0 {
+            return self.ml.run_one(allow_wait);
+        }
+        for id in run_queue {
+            let remove = {
+                let f = self.tasks.get_mut(&id);
+                if let Some(f) = f {
+                    let pinf = f.as_mut();
+                    let t = Task(id, self.run_queue.clone());
+                    let t = Arc::new(t);
+                    let waker = task::waker_ref(&t);
+                    pinf.poll(&waker) != futures::Poll::Pending
+                } else { false }
             };
-            // println!("{:?}, Queue: {:?}", Instant::now(), run_queue);
-            if run_queue.len() == 0 {
-                if !self.ml.run_one(true) { break; } else { continue; }
+            if remove {
+                self.tasks.remove(&id);
             }
-            for id in run_queue {
-                let remove = {
-                    let f = self.tasks.get_mut(&id);
-                    if let Some(f) = f {
-                        let pinf = f.as_mut();
-                        let t = Task(id, self.run_queue.clone());
-                        let t = Arc::new(t);
-                        let waker = task::waker_ref(&t);
-                        pinf.poll(&waker) != futures::Poll::Pending
-                    } else { false }
-                };
-                if remove {
-                    self.tasks.remove(&id);
-                }
-            }
+        }
+        true
+    }
+
+    pub fn block_on<R: 'a, F: Future<Output=R> + 'a>(&mut self, f: F) -> Option<R> {
+        use futures::future::{FutureExt, ready};
+        let res = Arc::new(RefCell::new(None));
+        let res2 = res.clone();
+        let f = f.then(move |r| { *res2.borrow_mut() = Some(r); ready(()) });
+        self.spawn(f);
+        loop {
+            if !self.run_one(true) { return None };
+            let x = res.borrow_mut().take();
+            if x.is_some() { return x; }
         }
     }
 
@@ -196,12 +215,10 @@ fn async_fn_test() {
 
     async fn foo(n: Instant) {
         await!(delay(n)).unwrap();
-        crate::terminate();
     }
 
     let mut x = Executor::new().unwrap();
     let n = Instant::now() + Duration::from_millis(200);
-    x.spawn(foo(n));
-    x.run();
+    x.block_on(foo(n));
     assert!(Instant::now() >= n);
 }

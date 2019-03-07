@@ -137,13 +137,11 @@ use std::time::{Instant, Duration};
 
 async fn wait_until(n: Instant) {
     await!(delay(n)).unwrap();
-    tml::terminate();
 }
 
 let mut x = tml::futures::Executor::new().unwrap();
 let n = Instant::now() + Duration::from_millis(1000);
-x.spawn(wait_until(n));
-x.run();
+x.block_on(wait_until(n));
 ```
 
 # Background
