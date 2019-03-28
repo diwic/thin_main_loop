@@ -6,15 +6,14 @@ Because Rust's native GUI story starts with the main loop.
 
 ## Goals
 
- * Callback based, but still ergonomic API
- * Cross-platform
+ * Support both callback based and async/await APIs
+ * Cross platform
  * Negligible performance overhead for desktop applications
  * Bind to the best backend on each platform
- * Compatible with Futures/await/async, when it settles
  * No extra background threads
  * Provide access to raw handles to allow platform specific extensions
 
-## Non-goals
+### Non-goals
 
  * Avoiding allocations and virtual dispatch at all costs
  * I/O scalability
@@ -35,10 +34,11 @@ and it can do so by:
  * Scheduling an async fn (requires nightly Rust and `--features "futures"`)
 
 Maturity: Just up and running, not battle-tested. It's also a proof-of-concept, to spawn discussion and interest.
+I e, it's waiting for *you* to give it a spin, try it out, see what you like and what you don't like, what feature's you're missing, etc! 
 
 Unsafe blocks: Only at the backend/FFI level. With the reference (Rust std) backend, there is no unsafe code at all.
 
-Rust version: Latest stable should be fine.
+Rust version: Latest stable should be fine. `--features "futures"` requires nightly Rust, because Futures 0.3 is not stable yet.
 
 ## Supported platforms
 

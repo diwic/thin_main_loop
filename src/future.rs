@@ -141,6 +141,7 @@ impl<'a> Executor<'a> {
         Ok(Executor { ml: MainLoop::new()?, next_task: 1, run_queue: Default::default(), tasks: Default::default() })
     }
 
+    /// Runs until the main loop is terminated.
     pub fn run(&mut self) {
         while self.run_one(true) {}
     }
@@ -175,6 +176,9 @@ impl<'a> Executor<'a> {
         true
     }
 
+    /// Runs until the future is ready, or the main loop is terminated.
+    ///
+    /// Returns None if the main loop is terminated, or the result of the future otherwise.
     pub fn block_on<R: 'a, F: Future<Output=R> + 'a>(&mut self, f: F) -> Option<R> {
         use futures::future::{FutureExt, ready};
         let res = Arc::new(RefCell::new(None));
