@@ -3,7 +3,7 @@
 use futures::future::{Future};
 use futures::task;
 use futures::stream::Stream;
-use futures::task::{Poll, Waker, ArcWake};
+use futures::task::{Poll, Waker, Context, ArcWake};
 use std::pin::Pin;
 use std::mem;
 use std::sync::{Arc, Mutex};
@@ -19,12 +19,12 @@ pub struct Delay(Instant);
 
 impl Future for Delay {
     type Output = Result<(), MainLoopError>;
-    fn poll(self: Pin<&mut Self>, lw: &Waker) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         let n = Instant::now();
         // println!("Polled at {:?}", n);
         if self.0 <= n { Poll::Ready(Ok(())) }
         else {
-            let lw = lw.clone();
+            let lw = ctx.waker().clone();
             match crate::call_after(self.0 - n, move || { lw.wake() }) {
                 Ok(_) => Poll::Pending,
                 Err(e) => Poll::Ready(Err(e)),
@@ -57,14 +57,14 @@ impl IOAble for Io {
     fn on_rw(&mut self, r: Result<IODirection, std::io::Error>) -> bool {
         self.0.queue.borrow_mut().push_back(r);
         let w = self.0.waker.borrow();
-        if let Some(waker) = &*w { waker.wake() };
+        if let Some(waker) = &*w { waker.wake_by_ref() };
         self.0.alive.get()
     }
 }
 
 impl Stream for Io {
     type Item = Result<IODirection, MainLoopError>;
-    fn poll_next(self: Pin<&mut Self>, lw: &Waker) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         let s: &IoInternal = &(*self).0;
         if !s.alive.get() { return Poll::Ready(None); }
 
@@ -84,7 +84,7 @@ impl Stream for Io {
             let item = item.map_err(|e| MainLoopError::Other(Box::new(e)));
             Poll::Ready(Some(item))
         } else {
-            *s.waker.borrow_mut() = Some(lw.clone());
+            *s.waker.borrow_mut() = Some(ctx.waker().clone());
             Poll::Pending
         }
     }
@@ -118,7 +118,7 @@ type RunQueue = Arc<Mutex<Vec<u64>>>;
 struct Task(u64, RunQueue);
 
 impl ArcWake for Task {
-    fn wake(x: &Arc<Self>) {
+    fn wake_by_ref(x: &Arc<Self>) {
         x.1.lock().unwrap().push(x.0);
         // println!("Waking up");
     }
@@ -166,7 +166,8 @@ impl<'a> Executor<'a> {
                     let t = Task(id, self.run_queue.clone());
                     let t = Arc::new(t);
                     let waker = task::waker_ref(&t);
-                    pinf.poll(&waker) != futures::Poll::Pending
+                    let mut ctx = Context::from_waker(&waker);
+                    pinf.poll(&mut ctx) != futures::Poll::Pending
                 } else { false }
             };
             if remove {
