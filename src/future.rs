@@ -219,7 +219,7 @@ fn async_fn_test() {
     use std::time::Duration;
 
     async fn foo(n: Instant) {
-        await!(delay(n)).unwrap();
+        delay(n).await.unwrap();
     }
 
     let mut x = Executor::new().unwrap();

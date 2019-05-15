@@ -2,7 +2,7 @@
 //!
 //! See README.md for an introduction and some examples.
 
-#![cfg_attr(feature = "futures", feature(futures_api, async_await, await_macro))]
+#![cfg_attr(feature = "futures", feature(async_await))]
 
 // Because not all backends use everything in the common code
 #![allow(unused_variables)]
@@ -33,8 +33,6 @@ pub use crate::mainloop::MainLoop;
 
 use std::time::Duration;
 use std::thread::ThreadId;
-
-// TODO: Futures integration
 
 /// Possible error codes returned from the main loop API.
 #[derive(Debug)]

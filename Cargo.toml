@@ -1,6 +1,6 @@
 [package]
 name = "thin_main_loop"
-version = "0.1.6"
+version = "0.1.7"
 authors = ["David Henningsson <diwic@ubuntu.com>"]
 edition = "2018"
 readme = "README.md"
@@ -15,7 +15,7 @@ categories = ["api-bindings", "asynchronous", "os::unix-apis", "os::windows-apis
 wasm-bindgen = { version = "0.2.29", optional = true }
 js-sys = { version = "0.3.6", optional = true }
 lazy_static = "1.1"
-futures-preview = { version = "0.3.0-alpha.14", optional = true }
+futures-preview = { version = "0.3.0-alpha.16", optional = true }
 boxfnonce = "0.1.1"
 
 [dependencies.glib-sys]
