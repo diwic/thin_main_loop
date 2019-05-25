@@ -17,8 +17,6 @@ use std::sync::Mutex;
 use std::collections::HashMap;
 use std::thread::ThreadId;
 use crate::{CbKind, CbId, MainLoopError, IOAble};
-use boxfnonce::SendBoxFnOnce;
-
 
 #[derive(Default)]
 struct MlTls {
@@ -52,14 +50,14 @@ pub (crate) fn ffi_cb_wrapper<R, F: FnOnce() -> R>(f: F, on_panic: R) -> R {
 // Thread sends
 
 pub (crate) trait SendFnOnce: Send {
-    fn send(&self, f: SendBoxFnOnce<'static, ()>) -> Result<(), MainLoopError>;
+    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError>;
 }
 
 lazy_static! {
     static ref THREAD_SENDER: Mutex<HashMap<ThreadId, Box<SendFnOnce>>> = Default::default();
 }
 
-pub (crate) fn call_thread_internal(thread: ThreadId, f: SendBoxFnOnce<'static, ()>) -> Result<(), MainLoopError> {
+pub (crate) fn call_thread_internal(thread: ThreadId, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
     let map = THREAD_SENDER.lock().unwrap();
     let sender = map.get(&thread).ok_or(MainLoopError::NoMainLoop)?;
     sender.send(f)

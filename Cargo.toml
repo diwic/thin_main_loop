@@ -16,7 +16,6 @@ wasm-bindgen = { version = "0.2.29", optional = true }
 js-sys = { version = "0.3.6", optional = true }
 lazy_static = "1.1"
 futures-preview = { version = "0.3.0-alpha.16", optional = true }
-boxfnonce = "0.1.1"
 
 [dependencies.glib-sys]
 version = "0.7"

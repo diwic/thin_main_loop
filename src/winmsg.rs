@@ -5,7 +5,6 @@ use std::{mem, ptr};
 use std::sync::{Once, Arc};
 use std::collections::HashMap;
 use std::cell::RefCell;
-use boxfnonce::SendBoxFnOnce;
 
 use winapi::shared::windef::HWND;
 use winapi::um::winuser;
@@ -58,7 +57,7 @@ impl<'a> BeInternal<'a> {
 pub struct Backend<'a>(Box<BeInternal<'a>>);
 
 impl SendFnOnce for Arc<OwnedHwnd> {
-    fn send(&self, f: SendBoxFnOnce<'static, ()>) -> Result<(), MainLoopError> {
+    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
         let cb = CbKind::Asap(f.into());
         let x = Box::into_raw(Box::new(cb));
         unsafe {

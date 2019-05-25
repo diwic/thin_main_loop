@@ -4,7 +4,6 @@ use std::{mem, panic};
 use std::ptr::NonNull;
 use crate::mainloop::{SendFnOnce, ffi_cb_wrapper};
 use std::os::raw::c_uint;
-use boxfnonce::SendBoxFnOnce;
 
 use std::cell::RefCell;
 use std::collections::{HashMap};
@@ -124,7 +123,7 @@ unsafe extern fn glib_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
    }, glib_sys::GFALSE)
 }
 
-struct Dummy(SendBoxFnOnce<'static, ()>);
+struct Dummy(Box<FnOnce() + Send + 'static>);
 
 struct Sender(*mut glib_sys::GMainContext);
 
@@ -138,13 +137,13 @@ unsafe extern fn glib_send_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
     ffi_cb_wrapper(|| {
         let x: Box<Dummy> = Box::from_raw(x as *mut _);
         let f = x.0;
-        f.call();
+        f();
     }, ());
     glib_sys::GFALSE
 }
 
 impl SendFnOnce for Sender {
-    fn send(&self, f: SendBoxFnOnce<'static, ()>) -> Result<(), MainLoopError> {
+    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
         let f = Box::new(Dummy(f));
         let f = Box::into_raw(f);
         let f = f as *mut _ as glib_sys::gpointer;

@@ -48,8 +48,6 @@ pub enum MainLoopError {
 #[derive(Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct CbId(u64);
 
-use boxfnonce::BoxFnOnce;
-
 /// Abstraction around unix fds and windows sockets.
 #[cfg(windows)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash)]
@@ -77,8 +75,8 @@ struct CbFuture<'a> {
 */
 
 enum CbKind<'a> {
-    Asap(BoxFnOnce<'a, ()>),
-    After(BoxFnOnce<'a, ()>, Duration),
+    Asap(Box<dyn FnOnce() + 'a>),
+    After(Box<dyn FnOnce() + 'a>, Duration),
     Interval(Box<dyn FnMut() -> bool + 'a>, Duration),
     IO(Box<IOAble + 'a>),
 //    Future(CbFuture<'a>),
@@ -86,8 +84,8 @@ enum CbKind<'a> {
 
 impl<'a> CbKind<'a> {
     // Constructors
-    pub fn asap<F: FnOnce() + 'a>(f: F) -> Self { CbKind::Asap(BoxFnOnce::from(f)) }
-    pub fn after<F: FnOnce() + 'a>(f: F, d: Duration) -> Self { CbKind::After(BoxFnOnce::from(f), d) }
+    pub fn asap<F: FnOnce() + 'a>(f: F) -> Self { CbKind::Asap(Box::new(f)) }
+    pub fn after<F: FnOnce() + 'a>(f: F, d: Duration) -> Self { CbKind::After(Box::new(f), d) }
     pub fn interval<F: FnMut() -> bool + 'a>(f: F, d: Duration) -> Self { CbKind::Interval(Box::new(f), d) }
     pub fn io<IO: IOAble + 'a>(io: IO) -> Self { CbKind::IO(Box::new(io)) }
 
@@ -140,8 +138,8 @@ impl<'a> CbKind<'a> {
 
     pub (crate) fn post_call_mut(self) {
         match self {
-            CbKind::After(f, _) => f.call(),
-            CbKind::Asap(f) => f.call(),
+            CbKind::After(f, _) => f(),
+            CbKind::Asap(f) => f(),
             CbKind::Interval(_, _) => {},
             CbKind::IO(_) => {},
 //            CbKind::Future(_) => {},
@@ -201,7 +199,7 @@ pub fn call_interval<F: FnMut() -> bool + 'static>(d: Duration, f: F) -> Result<
 /// Runs a function on another thread. The target thread must run a main loop.
 #[cfg(not(feature = "web"))]
 pub fn call_thread<F: FnOnce() + Send + 'static>(thread: ThreadId, f: F) -> Result<(), MainLoopError> {
-    mainloop::call_thread_internal(thread, boxfnonce::SendBoxFnOnce::from(f)) 
+    mainloop::call_thread_internal(thread, Box::new(f)) 
 }
 
 /// Selects whether to wait for a CbHandle to be available for reading, writing, or both.
