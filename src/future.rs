@@ -227,3 +227,35 @@ fn async_fn_test() {
     x.block_on(foo(n));
     assert!(Instant::now() >= n);
 }
+
+#[test]
+fn async_fn_test_ref() {
+    use std::time::Duration;
+
+    async fn takes_ref(s: &str) {
+        delay(Instant::now() + Duration::from_millis(50)).await.unwrap();
+        println!("{}", s);
+    }
+
+    async fn calls_takes_ref() {
+        let s = String::from("test3");
+        takes_ref(&s).await;
+    }
+
+    fn make_async() -> impl Future {
+        takes_ref("test1")
+    }
+
+/*    fn call_async<'a, F: FnOnce(&'a str) -> G, G: Future + 'a>(f: F) -> G {
+        let s = String::from("test2");
+        f(&s)
+    }
+*/
+    let _z = takes_ref;
+
+    let mut x = Executor::new().unwrap();
+//    x.block_on(call_async(takes_ref));
+    x.block_on(make_async());   
+    x.block_on(calls_takes_ref());
+
+}
