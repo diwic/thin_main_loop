@@ -123,7 +123,7 @@ unsafe extern fn glib_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
    }, glib_sys::GFALSE)
 }
 
-struct Dummy(Box<FnOnce() + Send + 'static>);
+struct Dummy(Box<dyn FnOnce() + Send + 'static>);
 
 struct Sender(*mut glib_sys::GMainContext);
 
@@ -143,7 +143,7 @@ unsafe extern fn glib_send_cb(x: glib_sys::gpointer) -> glib_sys::gboolean {
 }
 
 impl SendFnOnce for Sender {
-    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
+    fn send(&self, f: Box<dyn FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
         let f = Box::new(Dummy(f));
         let f = Box::into_raw(f);
         let f = f as *mut _ as glib_sys::gpointer;
@@ -164,7 +164,7 @@ impl Drop for Backend<'_> {
 }
 
 impl<'a> Backend<'a> {
-    pub (crate) fn new() -> Result<(Self, Box<SendFnOnce>), MainLoopError> { 
+    pub (crate) fn new() -> Result<(Self, Box<dyn SendFnOnce>), MainLoopError> { 
         let be = Backend {
             ctx: unsafe { glib_sys::g_main_context_new() }, 
             cb_map: Default::default(),

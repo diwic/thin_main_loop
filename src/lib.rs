@@ -41,7 +41,7 @@ pub enum MainLoopError {
     NoMainLoop,
     Unsupported,
     DurationTooLong,
-    Other(Box<std::error::Error>),
+    Other(Box<dyn std::error::Error>),
 }
 
 /// Callback Id, can be used to cancel callback before its run.
@@ -78,7 +78,7 @@ enum CbKind<'a> {
     Asap(Box<dyn FnOnce() + 'a>),
     After(Box<dyn FnOnce() + 'a>, Duration),
     Interval(Box<dyn FnMut() -> bool + 'a>, Duration),
-    IO(Box<IOAble + 'a>),
+    IO(Box<dyn IOAble + 'a>),
 //    Future(CbFuture<'a>),
 }
 

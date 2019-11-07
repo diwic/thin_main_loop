@@ -111,7 +111,7 @@ pub fn io(handle: CbHandle, dir: IODirection) -> Io {
 
 // And the executor stuff 
 
-type BoxFuture<'a> = Pin<Box<Future<Output=()> + 'a>>;
+type BoxFuture<'a> = Pin<Box<dyn Future<Output=()> + 'a>>;
 
 type RunQueue = Arc<Mutex<Vec<u64>>>;
 

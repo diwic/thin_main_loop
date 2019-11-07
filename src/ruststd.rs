@@ -14,11 +14,11 @@ struct Data<'a> {
 
 struct TSender {
     thread: thread::Thread,
-    sender: Sender<Box<FnOnce() + Send + 'static>>,
+    sender: Sender<Box<dyn FnOnce() + Send + 'static>>,
 }
 
 impl SendFnOnce for TSender {
-    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
+    fn send(&self, f: Box<dyn FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
         self.sender.send(f).map_err(|e| MainLoopError::Other(e.into()))?;
         self.thread.unpark();
         Ok(())
@@ -27,11 +27,11 @@ impl SendFnOnce for TSender {
 
 pub struct Backend<'a> {
     data: RefCell<VecDeque<Data<'a>>>,
-    recv: Receiver<Box<FnOnce() + Send + 'static>>,
+    recv: Receiver<Box<dyn FnOnce() + Send + 'static>>,
 }
 
 impl<'a> Backend<'a> {
-    pub (crate) fn new() -> Result<(Self, Box<SendFnOnce>), MainLoopError> {
+    pub (crate) fn new() -> Result<(Self, Box<dyn SendFnOnce>), MainLoopError> {
         let (tx, rx) = channel();
         let be = Backend { recv: rx, data: Default::default() };
         let sender = TSender { thread: thread::current(), sender: tx };
