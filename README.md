@@ -30,15 +30,15 @@ The library has functions for running code:
 
 and it can do so by:
  * Scheduling a callback
- * Scheduling a 0.3 future (requires nightly Rust and `--features "futures"`)
- * Scheduling an async fn (requires nightly Rust and `--features "futures"`)
+ * Scheduling a 0.3 future
+ * Scheduling an async fn
 
 Maturity: Just up and running, not battle-tested. It's also a proof-of-concept, to spawn discussion and interest.
 I e, it's waiting for *you* to give it a spin, try it out, see what you like and what you don't like, what feature's you're missing, etc! 
 
 Unsafe blocks: Only at the backend/FFI level. With the reference (Rust std) backend, there is no unsafe code at all.
 
-Rust version: Latest stable should be fine. `--features "futures"` requires nightly Rust, because Futures 0.3 is not stable yet.
+Rust version: Latest stable should be fine.
 
 ## Supported platforms
 
@@ -125,18 +125,15 @@ ml.run();
 
 ## Async fn
 
-Requires features "futures" and nightly Rust.
-
 The following code waits one second, then terminates the program.
 
 ```rust
-#![feature(async_await, await_macro))]
 // extern crate thin_main_loop as tml;
 
 use std::time::{Instant, Duration};
 
 async fn wait_until(n: Instant) {
-    await!(delay(n)).unwrap();
+    delay(n).await.unwrap();
 }
 
 let mut x = tml::futures::Executor::new().unwrap();

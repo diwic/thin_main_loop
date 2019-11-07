@@ -1,6 +1,6 @@
-//! 0.3 Futures support (requires the "futures" feature).
+//! 0.3 Futures support
 
-use futures::future::{Future};
+use std::future::Future;
 use futures::task;
 use futures::stream::Stream;
 use futures::task::{Poll, Waker, Context, ArcWake};
@@ -167,7 +167,7 @@ impl<'a> Executor<'a> {
                     let t = Arc::new(t);
                     let waker = task::waker_ref(&t);
                     let mut ctx = Context::from_waker(&waker);
-                    pinf.poll(&mut ctx) != futures::Poll::Pending
+                    pinf.poll(&mut ctx) != Poll::Pending
                 } else { false }
             };
             if remove {

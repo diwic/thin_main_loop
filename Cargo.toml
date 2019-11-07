@@ -15,7 +15,7 @@ categories = ["api-bindings", "asynchronous", "os::unix-apis", "os::windows-apis
 wasm-bindgen = { version = "0.2.29", optional = true }
 js-sys = { version = "0.3.6", optional = true }
 lazy_static = "1.1"
-futures-preview = { version = "0.3.0-alpha.16", optional = true }
+futures = "0.3.1"
 
 [dependencies.glib-sys]
 version = "0.7"
@@ -35,10 +35,7 @@ features = [
 ]
 
 [features]
-futures = ["futures-preview"]
 glib = ["glib-sys"]
 win32 = ["winapi"]
 web = ["wasm-bindgen", "js-sys", "web-sys"]
 
-[package.metadata.docs.rs]
-features = ["futures"]
