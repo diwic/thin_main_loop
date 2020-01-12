@@ -57,8 +57,8 @@ impl<'a> BeInternal<'a> {
 pub struct Backend<'a>(Box<BeInternal<'a>>);
 
 impl SendFnOnce for Arc<OwnedHwnd> {
-    fn send(&self, f: Box<FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
-        let cb = CbKind::Asap(f.into());
+    fn send(&self, f: Box<dyn FnOnce() + Send + 'static>) -> Result<(), MainLoopError> {
+        let cb = CbKind::Asap(f as _);
         let x = Box::into_raw(Box::new(cb));
         unsafe {
             winuser::PostMessageA(self.0, WM_CALL_THREAD, x as usize, 0);
@@ -135,7 +135,7 @@ impl<'a> Drop for Backend<'a> {
 }
 
 impl<'a> Backend<'a> {
-    pub (crate) fn new() -> Result<(Self, Box<SendFnOnce>), MainLoopError> {
+    pub (crate) fn new() -> Result<(Self, Box<dyn SendFnOnce>), MainLoopError> {
         ensure_window_class();
         //println!("call CreateWindowExA");
         let wnd = unsafe { winuser::CreateWindowExA(
